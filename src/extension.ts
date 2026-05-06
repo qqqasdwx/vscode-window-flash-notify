@@ -195,10 +195,9 @@ async function showToastNotification(payload: NotifyPayload, workspaceName: stri
   const message = payload.message || "Notification received";
   const title = payload.title || `${workspaceName} - Window Flash Notify`;
   const timeout = payload.toastTimeout ?? getConfig().get<number>("toastTimeout", 15);
-  const focusUri = buildFocusUri(workspaceName);
 
-  output.appendLine(`Showing protocol toast: ${focusUri}`);
-  await runProtocolToastPowerShell(title, message, focusUri, timeout);
+  output.appendLine(`Showing interactive toast: ${title} - ${message}`);
+  runInteractiveToastPowerShell(title, message, workspaceName, timeout);
 }
 
 function buildFocusUri(workspaceName: string): string {
@@ -211,30 +210,37 @@ function buildFocusUri(workspaceName: string): string {
   return uri.toString(true);
 }
 
-async function runProtocolToastPowerShell(
+function runInteractiveToastPowerShell(
   title: string,
   message: string,
-  focusUri: string,
+  workspaceName: string,
   timeout: number
-): Promise<void> {
+): void {
   const env = {
     ...process.env,
     WINDOW_FLASH_NOTIFY_TOAST_TITLE: title,
     WINDOW_FLASH_NOTIFY_TOAST_MESSAGE: message,
-    WINDOW_FLASH_NOTIFY_TOAST_URI: focusUri,
-    WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(timeout)
+    WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(timeout),
+    WINDOW_FLASH_NOTIFY_ACTION: "focus",
+    WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceName,
+    WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName,
+    WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: "0",
+    WINDOW_FLASH_NOTIFY_COUNT: "1"
   };
 
-  await runPowerShell(getProtocolToastPowerShell(), env);
+  spawnPowerShellDetached(getInteractiveToastPowerShell(), env);
 }
 
-function getProtocolToastPowerShell(): string {
+function getInteractiveToastPowerShell(): string {
   return `
 $ErrorActionPreference = 'Stop'
 
 $title = $env:WINDOW_FLASH_NOTIFY_TOAST_TITLE
 $message = $env:WINDOW_FLASH_NOTIFY_TOAST_MESSAGE
-$uri = $env:WINDOW_FLASH_NOTIFY_TOAST_URI
+$timeoutSeconds = 15
+if ($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT) {
+  [void][int]::TryParse($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT, [ref]$timeoutSeconds)
+}
 
 function Escape-Xml([string]$value) {
   return [System.Security.SecurityElement]::Escape($value)
@@ -242,13 +248,12 @@ function Escape-Xml([string]$value) {
 
 $escapedTitle = Escape-Xml $title
 $escapedMessage = Escape-Xml $message
-$escapedUri = Escape-Xml $uri
 
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
 $xmlText = @"
-<toast activationType="protocol" launch="$escapedUri">
+<toast>
   <visual>
     <binding template="ToastGeneric">
       <text>$escapedTitle</text>
@@ -256,7 +261,7 @@ $xmlText = @"
     </binding>
   </visual>
   <actions>
-    <action content="Focus VS Code" activationType="protocol" arguments="$escapedUri" />
+    <action content="Focus VS Code" arguments="focus" activationType="foreground" />
   </actions>
 </toast>
 "@
@@ -264,9 +269,48 @@ $xmlText = @"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+$done = New-Object System.Threading.ManualResetEvent($false)
+$script:activated = $false
+
+$toast.add_Activated({
+  $script:activated = $true
+  [void]$done.Set()
+})
+
+$toast.add_Dismissed({
+  [void]$done.Set()
+})
+
+$toast.add_Failed({
+  [void]$done.Set()
+})
+
 $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Visual Studio Code")
 $notifier.Show($toast)
+
+[void]$done.WaitOne([Math]::Max(1, $timeoutSeconds) * 1000)
+
+if ($script:activated) {
+${getWindowActionPowerShell()}
+}
 `;
+}
+
+function spawnPowerShellDetached(script: string, env: NodeJS.ProcessEnv): void {
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const child = spawn("powershell.exe", [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-EncodedCommand",
+    encoded
+  ], {
+    env,
+    windowsHide: true,
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
 }
 
 async function showInternalNotification(type: NotifyType, message: string, workspaceName: string): Promise<void> {

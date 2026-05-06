@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "Flash the current VS Code window from terminal, SSH, VM, or background scripts without stealing focus.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "qqqasdwx",
   "license": "MIT",
   "repository": {

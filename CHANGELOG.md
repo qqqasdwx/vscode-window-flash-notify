@@ -25,3 +25,8 @@
 
 - Replace callback-based Toast handling with protocol-activated Windows Toasts.
 - Toast clicks open the extension URI handler, then focus the matching VS Code window.
+
+## 0.0.6
+
+- Use a persistent PowerShell Toast listener for click-to-focus on Windows.
+- Toast clicks now run the same focus routine already used by the HTTP `focus` action.
