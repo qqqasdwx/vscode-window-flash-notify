@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.0.7
+
+- Stop falling back to every visible VS Code window when title matching fails.
+- Add workspace title hints to improve matching for Remote SSH titles such as
+  `project [SSH: host]`.
+- Write `workspaceHints` to the port file and health response for easier
+  debugging.
+
 ## 0.0.1
 
 - Initial preview release.

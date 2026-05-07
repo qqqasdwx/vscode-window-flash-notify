@@ -14,6 +14,8 @@ terminal, and Codex CLI hooks.
 - Writes `.vscode/window-flash-notify-port.json` in the current workspace.
 - Accepts `POST /notify` requests from local scripts or a VM.
 - On Windows, calls `FlashWindowEx` for the matching VS Code window.
+- If no VS Code window title matches the workspace hints, returns an error
+  instead of flashing every VS Code window.
 - Does not bring VS Code to the foreground unless the request asks for
   `"action": "focus"`.
 
@@ -55,7 +57,7 @@ fi
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Codex finished: ${project}\",\"type\":\"info\",\"action\":\"flash\"}" \
+  --data "{\"message\":\"Codex finished: ${project}\",\"type\":\"info\",\"action\":\"flash\",\"workspaceName\":\"${project}\",\"workspacePath\":\"${cwd}\"}" \
   >/dev/null || true
 
 printf '{"continue": true}'
@@ -68,7 +70,8 @@ printf '{"continue": true}'
   "message": "Codex finished",
   "type": "info",
   "action": "flash",
-  "workspaceName": "my-project"
+  "workspaceName": "my-project",
+  "workspacePath": "/path/to/my-project"
 }
 ```
 
@@ -79,6 +82,8 @@ Fields:
 - `action`: `flash`, `focus`, or `none`. Default is `flash`.
 - `workspaceName`: optional window title match hint. Defaults to the current
   workspace name.
+- `workspacePath`: optional workspace path hint. Its basename is also used for
+  window title matching.
 - `showInternalNotification`: optional per-request override for showing a VS
   Code internal notification.
 
@@ -94,9 +99,17 @@ Fields:
   foreground. Default: `true`.
 - `windowFlashNotify.showInternalNotification`: also show a VS Code internal
   notification. Default: `false`.
+- `windowFlashNotify.showToast`: also show a native desktop notification.
+  Default: `false`. Toast click-to-focus is experimental; taskbar flashing is
+  the stable path.
 
 ## Notes
 
 This extension intentionally focuses on Windows because Windows exposes a
 stable taskbar flashing API. On non-Windows platforms the HTTP endpoint still
 works, but `flash` is a no-op.
+
+Window matching is conservative. The extension uses hints such as
+`workspaceName`, the current VS Code workspace name, and workspace folder
+basenames. It does not fall back to flashing every VS Code window when those
+hints do not match any visible VS Code window title.

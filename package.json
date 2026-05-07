@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "Flash the current VS Code window from terminal, SSH, VM, or background scripts without stealing focus.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "qqqasdwx",
   "license": "MIT",
   "repository": {
@@ -101,7 +101,7 @@
         "windowFlashNotify.showToast": {
           "type": "boolean",
           "default": false,
-          "description": "Also show a native desktop notification. Clicking the notification attempts to focus the matching VS Code window."
+          "description": "Also show a native desktop notification. Toast click-to-focus is experimental; taskbar flashing is the stable notification path."
         },
         "windowFlashNotify.toastTimeout": {
           "type": "number",

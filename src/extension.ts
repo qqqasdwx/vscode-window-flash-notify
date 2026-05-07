@@ -27,6 +27,7 @@ interface PortInfo {
     gateway: string;
   };
   workspaceName: string;
+  workspaceHints: string[];
   pid: number;
   platform: NodeJS.Platform;
   timestamp: string;
@@ -50,18 +51,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`URI received: ${uri.toString(true)}`);
         const params = new URLSearchParams(uri.query);
         const workspaceName = params.get("workspaceName") || getWorkspaceName();
-        await runWindowsWindowAction("focus", workspaceName);
+        await runWindowsWindowAction("focus", getWorkspaceMatchHints(workspaceName));
       }
     })
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotify.testFlash", async () => {
-    await handleNotification({
-      message: "Test notification",
-      type: "info",
-      action: "flash",
-      showToast: true
-    });
+      await handleNotification({
+        message: "Test notification",
+        type: "info",
+        action: "flash"
+      });
     })
   );
   context.subscriptions.push(
@@ -134,7 +134,12 @@ async function stopServer(): Promise<void> {
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
     if (req.method === "GET" && req.url?.startsWith("/health")) {
-      sendJson(res, 200, { ok: true, port: activePort, workspaceName: getWorkspaceName() });
+      sendJson(res, 200, {
+        ok: true,
+        port: activePort,
+        workspaceName: getWorkspaceName(),
+        workspaceHints: getWorkspaceMatchHints()
+      });
       return;
     }
 
@@ -163,30 +168,37 @@ async function handleNotification(payload: NotifyPayload): Promise<void> {
   const message = payload.message || "Notification received";
   const action = payload.action || "flash";
   const type = payload.type || "info";
-  const workspaceName = payload.workspaceName || getWorkspaceName();
+  const workspaceHints = getWorkspaceMatchHints(payload.workspaceName, payload.workspacePath);
+  const workspaceName = workspaceHints[0] || getWorkspaceName();
 
-  output.appendLine(`Notify: action=${action} type=${type} workspace=${workspaceName} message=${message}`);
+  output.appendLine(
+    `Notify: action=${action} type=${type} workspace=${workspaceName} hints=${workspaceHints.join("|")} message=${message}`
+  );
 
   if (action === "flash") {
-    await runWindowsWindowAction("flash", workspaceName);
+    await runWindowsWindowAction("flash", workspaceHints);
   } else if (action === "focus") {
-    await runWindowsWindowAction("focus", workspaceName);
+    await runWindowsWindowAction("focus", workspaceHints);
   }
 
   const showToast = payload.showToast ?? getConfig().get<boolean>("showToast", false);
   if (showToast) {
-    await showToastNotification(payload, workspaceName);
+    await showToastNotification(payload, workspaceName, workspaceHints);
   }
 
   const showInternal =
     payload.showInternalNotification ?? getConfig().get<boolean>("showInternalNotification", false);
 
   if (showInternal) {
-    await showInternalNotification(type, `[${workspaceName}] ${message}`, workspaceName);
+    await showInternalNotification(type, `[${workspaceName}] ${message}`, workspaceHints);
   }
 }
 
-async function showToastNotification(payload: NotifyPayload, workspaceName: string): Promise<void> {
+async function showToastNotification(
+  payload: NotifyPayload,
+  workspaceName: string,
+  workspaceHints: string[]
+): Promise<void> {
   if (process.platform !== "win32") {
     output.appendLine(`Skipping native toast; platform is ${process.platform}`);
     return;
@@ -197,7 +209,7 @@ async function showToastNotification(payload: NotifyPayload, workspaceName: stri
   const timeout = payload.toastTimeout ?? getConfig().get<number>("toastTimeout", 15);
 
   output.appendLine(`Showing interactive toast: ${title} - ${message}`);
-  runInteractiveToastPowerShell(title, message, workspaceName, timeout);
+  runInteractiveToastPowerShell(title, message, workspaceName, workspaceHints, timeout);
 }
 
 function buildFocusUri(workspaceName: string): string {
@@ -214,6 +226,7 @@ function runInteractiveToastPowerShell(
   title: string,
   message: string,
   workspaceName: string,
+  workspaceHints: string[],
   timeout: number
 ): void {
   const env = {
@@ -223,6 +236,7 @@ function runInteractiveToastPowerShell(
     WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(timeout),
     WINDOW_FLASH_NOTIFY_ACTION: "focus",
     WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceName,
+    WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS: workspaceHints.join("\n"),
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName,
     WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: "0",
     WINDOW_FLASH_NOTIFY_COUNT: "1"
@@ -313,7 +327,7 @@ function spawnPowerShellDetached(script: string, env: NodeJS.ProcessEnv): void {
   child.unref();
 }
 
-async function showInternalNotification(type: NotifyType, message: string, workspaceName: string): Promise<void> {
+async function showInternalNotification(type: NotifyType, message: string, workspaceHints: string[]): Promise<void> {
   const focus = "Focus";
   const flashAgain = "Flash Again";
   let selected: string | undefined;
@@ -327,13 +341,13 @@ async function showInternalNotification(type: NotifyType, message: string, works
   }
 
   if (selected === focus) {
-    await runWindowsWindowAction("focus", workspaceName);
+    await runWindowsWindowAction("focus", workspaceHints);
   } else if (selected === flashAgain) {
-    await runWindowsWindowAction("flash", workspaceName);
+    await runWindowsWindowAction("flash", workspaceHints);
   }
 }
 
-async function runWindowsWindowAction(action: "flash" | "focus", workspaceName: string): Promise<void> {
+async function runWindowsWindowAction(action: "flash" | "focus", workspaceHints: string[]): Promise<void> {
   if (process.platform !== "win32") {
     output.appendLine(`Skipping ${action}; platform is ${process.platform}`);
     return;
@@ -346,7 +360,8 @@ async function runWindowsWindowAction(action: "flash" | "focus", workspaceName: 
   const env = {
     ...process.env,
     WINDOW_FLASH_NOTIFY_ACTION: action,
-    WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceName,
+    WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceHints[0] || "",
+    WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS: workspaceHints.join("\n"),
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName,
     WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: flashUntilForeground ? "1" : "0",
     WINDOW_FLASH_NOTIFY_COUNT: String(flashCount)
@@ -360,6 +375,7 @@ function getWindowActionPowerShell(): string {
 $ErrorActionPreference = 'Stop'
 $action = $env:WINDOW_FLASH_NOTIFY_ACTION
 $workspace = $env:WINDOW_FLASH_NOTIFY_WORKSPACE
+$workspaceHintsRaw = $env:WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS
 $product = $env:WINDOW_FLASH_NOTIFY_PRODUCT
 $untilForeground = $env:WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND -eq '1'
 $flashCount = 8
@@ -407,8 +423,35 @@ public static class WindowFlashNotifyUser32 {
 }
 "@
 
+$workspaceHints = New-Object System.Collections.Generic.List[string]
+function Add-WorkspaceHint([string]$hint) {
+  if ([string]::IsNullOrWhiteSpace($hint)) {
+    return
+  }
+
+  $trimmed = $hint.Trim()
+  if ($trimmed -in @('VS Code', 'Visual Studio Code', 'Code', 'Code - Insiders', 'VSCodium')) {
+    return
+  }
+
+  foreach ($existing in $workspaceHints) {
+    if ([string]::Equals($existing, $trimmed, [System.StringComparison]::OrdinalIgnoreCase)) {
+      return
+    }
+  }
+
+  [void]$workspaceHints.Add($trimmed)
+}
+
+Add-WorkspaceHint $workspace
+if (-not [string]::IsNullOrWhiteSpace($workspaceHintsRaw)) {
+  foreach ($hint in ($workspaceHintsRaw -split [string][char]10)) {
+    Add-WorkspaceHint $hint
+  }
+}
+
 $matching = New-Object System.Collections.Generic.List[System.IntPtr]
-$fallback = New-Object System.Collections.Generic.List[System.IntPtr]
+$visibleCodeTitles = New-Object System.Collections.Generic.List[string]
 
 $callback = [WindowFlashNotifyUser32+EnumWindowsProc]{
   param([IntPtr]$hWnd, [IntPtr]$lParam)
@@ -440,11 +483,13 @@ $callback = [WindowFlashNotifyUser32+EnumWindowsProc]{
     return $true
   }
 
-  [void]$fallback.Add($hWnd)
+  [void]$visibleCodeTitles.Add($title)
 
-  if (-not [string]::IsNullOrWhiteSpace($workspace) -and
-      $title.IndexOf($workspace, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-    [void]$matching.Add($hWnd)
+  foreach ($hint in $workspaceHints) {
+    if ($title.IndexOf($hint, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+      [void]$matching.Add($hWnd)
+      break
+    }
   }
 
   return $true
@@ -452,17 +497,21 @@ $callback = [WindowFlashNotifyUser32+EnumWindowsProc]{
 
 [void][WindowFlashNotifyUser32]::EnumWindows($callback, [IntPtr]::Zero)
 
-if ($matching.Count -gt 0) {
-  $targets = $matching
-} else {
-  $targets = $fallback
+if ($workspaceHints.Count -eq 0) {
+  throw "No workspace hint was available; refusing to target every VS Code window"
 }
 
-if ($targets.Count -eq 0) {
+if ($visibleCodeTitles.Count -eq 0) {
   throw "No visible VS Code window was found"
 }
 
-foreach ($hwnd in $targets) {
+if ($matching.Count -eq 0) {
+  $hintText = [string]::Join(', ', $workspaceHints)
+  $titleText = [string]::Join('; ', $visibleCodeTitles)
+  throw "No VS Code window matched workspace hint(s): $hintText. Visible VS Code title(s): $titleText"
+}
+
+foreach ($hwnd in $matching) {
   if ($action -eq 'focus') {
     [void][WindowFlashNotifyUser32]::ShowWindowAsync($hwnd, 9)
     [void][WindowFlashNotifyUser32]::SetForegroundWindow($hwnd)
@@ -613,6 +662,7 @@ function makePortInfo(port: number, listenHost: string): PortInfo {
       gateway: `http://${gatewayHost}:${port}/notify`
     },
     workspaceName: getWorkspaceName(),
+    workspaceHints: getWorkspaceMatchHints(),
     pid: process.pid,
     platform: process.platform,
     timestamp: new Date().toISOString(),
@@ -659,7 +709,55 @@ function buildCurlCommand(): string {
   const token = getConfig().get<string>("authToken", "");
   const tokenHeader = token ? ` \\\n  -H 'X-Window-Flash-Token: ${shellSingleQuote(token)}'` : "";
 
-  return `curl -fsS -X POST '${endpoint}' \\\n  -H 'Content-Type: application/json'${tokenHeader} \\\n  --data '{"message":"${message}","type":"info","action":"flash","showToast":true}'`;
+  return `curl -fsS -X POST '${endpoint}' \\\n  -H 'Content-Type: application/json'${tokenHeader} \\\n  --data '{"message":"${message}","type":"info","action":"flash"}'`;
+}
+
+function getWorkspaceMatchHints(workspaceName?: string, workspacePath?: string): string[] {
+  const hints: string[] = [];
+  const addHint = (value: string | undefined): void => {
+    const trimmed = value?.trim();
+    if (!trimmed || isGenericWorkspaceHint(trimmed)) {
+      return;
+    }
+
+    if (!hints.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
+      hints.push(trimmed);
+    }
+  };
+
+  const addNameVariants = (value: string | undefined): void => {
+    addHint(value);
+    addHint(stripRemoteSuffix(value));
+  };
+
+  addNameVariants(workspaceName);
+  addNameVariants(getWorkspaceName());
+  addHint(workspacePath);
+  addHint(basenameFromAnyPath(workspacePath));
+
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    addNameVariants(folder.name);
+    addHint(folder.uri.fsPath);
+    addHint(folder.uri.path);
+    addHint(basenameFromAnyPath(folder.uri.fsPath));
+    addHint(basenameFromAnyPath(folder.uri.path));
+  }
+
+  return hints;
+}
+
+function stripRemoteSuffix(value: string | undefined): string | undefined {
+  return value?.replace(/\s+\[[^\]]+\]\s*$/, "");
+}
+
+function basenameFromAnyPath(value: string | undefined): string | undefined {
+  return value?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+}
+
+function isGenericWorkspaceHint(value: string): boolean {
+  return ["vs code", "visual studio code", "code", "code - insiders", "vscodium"].includes(
+    value.toLowerCase()
+  );
 }
 
 function getWorkspaceName(): string {
