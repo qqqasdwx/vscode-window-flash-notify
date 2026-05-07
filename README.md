@@ -20,6 +20,18 @@ Window Flash Notify 让脚本、终端任务、远端构建、测试流程在结
 
 拆成两个扩展是为了适配 VS Code Remote 的 extension host 模型：远端 workspace 扩展能监听远端 localhost，本地 UI 扩展能调用 Windows 桌面 API。
 
+## 注意事项
+
+- UI 端闪烁功能依赖 Windows 任务栏 API。非 Windows 本地桌面可以正常使用 relay endpoint，但 `flash` 不会产生窗口闪烁。
+- `WINDOW_FLASH_NOTIFY_ENDPOINT` 只会注入到 VS Code 集成终端。已有终端如果没有该变量，请新开终端。
+- 当前窗口定位依赖 VS Code 窗口标题中的 workspace hints，例如 workspace 名称、folder 路径或请求体里的 `workspaceHints`。如果打开的是没有 folder/workspace 的默认窗口，扩展可能无法判断目标窗口并返回错误。
+- 窗口匹配是保守的。如果没有任何可见 VS Code 窗口标题匹配 workspace hints，UI 端不会退回到“闪烁所有 VS Code 窗口”。需要稳定匹配时，请打开项目 folder/workspace，或传入能出现在窗口标题里的 `workspaceHints`。
+- `focus` 会主动把匹配窗口拉到前台；默认推荐使用 `flash`，避免打断当前焦点。
+
+## TODO
+
+- [ ] 支持基于 VS Code/Electron 进程链的窗口定位，减少对 workspace 标题匹配的依赖，并改善无 folder/workspace 默认窗口的识别能力。
+
 ## 安装
 
 安装两个扩展：
@@ -144,10 +156,3 @@ Relay 端：
 扩展 manifest 使用 VS Code 标准的 `package.nls.json` / `package.nls.zh-cn.json` 本地化方式。英文作为默认 fallback，中文用户会看到中文设置项和命令标题。
 
 README 默认中文，英文文档见 [README.en.md](README.en.md)。
-
-## 注意事项
-
-- UI 端闪烁功能依赖 Windows 任务栏 API。非 Windows 本地桌面可以正常使用 relay endpoint，但 `flash` 不会产生窗口闪烁。
-- `WINDOW_FLASH_NOTIFY_ENDPOINT` 只会注入到 VS Code 集成终端。已有终端如果没有该变量，请新开终端。
-- 窗口匹配是保守的。如果没有任何可见 VS Code 窗口标题匹配 workspace hints，UI 端会返回错误，不会退回到“闪烁所有 VS Code 窗口”。
-- `focus` 会主动把匹配窗口拉到前台；默认推荐使用 `flash`，避免打断当前焦点。

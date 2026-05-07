@@ -20,6 +20,18 @@ The project contains two VS Code extensions:
 
 The split matches VS Code Remote's extension host model: the workspace extension can listen on the workspace machine's localhost, while the UI extension can call local Windows desktop APIs.
 
+## Notes
+
+- The UI-side flashing feature depends on the Windows taskbar API. On non-Windows local desktops, the relay endpoint still works, but `flash` is a no-op.
+- `WINDOW_FLASH_NOTIFY_ENDPOINT` is injected only into VS Code integrated terminals. If an existing terminal does not have it, open a new terminal.
+- Window targeting currently depends on workspace hints in the VS Code window title, such as the workspace name, folder path, or request `workspaceHints`. If the window has no opened folder or workspace, the extension may be unable to identify the target window and return an error.
+- Window matching is conservative. If no visible VS Code window title matches the workspace hints, the UI extension does not fall back to flashing every VS Code window. For reliable matching, open a project folder/workspace or send `workspaceHints` that appear in the window title.
+- `focus` actively brings the matching window to the foreground. `flash` is recommended by default because it does not interrupt focus.
+
+## TODO
+
+- [ ] Support VS Code/Electron process-chain based window targeting to reduce reliance on workspace title matching and improve detection for default windows without an opened folder/workspace.
+
 ## Install
 
 Install both extensions:
@@ -144,10 +156,3 @@ Relay extension:
 The extension manifests use VS Code's standard `package.nls.json` / `package.nls.zh-cn.json` localization files. English is the default fallback, and Chinese users see localized setting descriptions and command titles.
 
 The default README is Chinese. This file is the English documentation.
-
-## Notes
-
-- The UI-side flashing feature depends on the Windows taskbar API. On non-Windows local desktops, the relay endpoint still works, but `flash` is a no-op.
-- `WINDOW_FLASH_NOTIFY_ENDPOINT` is injected only into VS Code integrated terminals. If an existing terminal does not have it, open a new terminal.
-- Window matching is conservative. If no visible VS Code window title matches the workspace hints, the UI extension returns an error instead of flashing every VS Code window.
-- `focus` actively brings the matching window to the foreground. `flash` is recommended by default because it does not interrupt focus.
