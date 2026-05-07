@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.1.5
+
+- Document the true minimum notification call: an empty `POST` request.
+- Simplify examples further so `message` is the only shown JSON field.
+
 ## 0.1.4
 
 - Document notification request fields in tables, including required status,

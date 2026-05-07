@@ -18,7 +18,5 @@ Use it in Remote SSH, WSL, Dev Containers, Vagrant, or local workspaces where sc
 The relay injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code integrated terminals. If the variable is missing from the current terminal, open a new VS Code terminal.
 
 ```bash
-curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
-  -H 'Content-Type: application/json' \
-  --data '{"message":"Task finished","type":"info","action":"flash"}'
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 ```

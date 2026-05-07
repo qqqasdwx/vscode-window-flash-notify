@@ -46,7 +46,13 @@ WINDOW_FLASH_NOTIFY_ENDPOINT=http://127.0.0.1:7531/notify
 
 If the variable is missing from the current terminal, open a new VS Code terminal.
 
-Run this from the workspace terminal:
+The minimum call is an empty `POST` request:
+
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
+```
+
+Send a JSON body when you want to customize the log text:
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
@@ -74,17 +80,19 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\"}" \
+  --data "{\"message\":\"Finished: ${project}\"}" \
   >/dev/null || true
 ```
 
 ## Request Body
 
+The request body can be omitted. An omitted body is equivalent to `{}` and defaults to `flash`.
+
+Optional JSON example:
+
 ```json
 {
-  "message": "Task finished",
-  "type": "info",
-  "action": "flash"
+  "message": "Task finished"
 }
 ```
 

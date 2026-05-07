@@ -46,7 +46,13 @@ WINDOW_FLASH_NOTIFY_ENDPOINT=http://127.0.0.1:7531/notify
 
 如果当前终端里没有这个变量，请新开一个 VS Code 终端。
 
-在 workspace 终端执行：
+最小调用只需要发送一个空的 `POST` 请求：
+
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
+```
+
+如果想自定义日志文本，可以发送 JSON 请求体：
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
@@ -74,17 +80,19 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\"}" \
+  --data "{\"message\":\"Finished: ${project}\"}" \
   >/dev/null || true
 ```
 
 ## 请求体
 
+请求体可以省略。省略时等价于 `{}`，默认会执行 `flash`。
+
+可选 JSON 示例：
+
 ```json
 {
-  "message": "Task finished",
-  "type": "info",
-  "action": "flash"
+  "message": "Task finished"
 }
 ```
 
