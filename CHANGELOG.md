@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.1.3
+
+- Remove the relay extension's hard dependency on the UI extension so it can
+  activate in the workspace extension host while the UI extension runs in the
+  local UI extension host.
+
 ## 0.1.2
 
 - Replace inline bilingual manifest strings with VS Code `package.nls` localization files.
