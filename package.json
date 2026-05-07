@@ -1,8 +1,8 @@
 {
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
-  "description": "Flash the current Windows VS Code window when the workspace relay receives a terminal notification.",
-  "version": "0.1.0",
+  "description": "从终端 hook 通知本地 Windows VS Code 窗口闪烁任务栏图标 / Flash the local Windows VS Code taskbar window from terminal hooks.",
+  "version": "0.1.1",
   "publisher": "qqqasdwx",
   "license": "MIT",
   "repository": {
@@ -43,28 +43,28 @@
     "commands": [
       {
         "command": "windowFlashNotify.testFlash",
-        "title": "Window Flash Notify: Test UI Flash"
+        "title": "窗口闪烁通知: 测试 UI 闪烁 / Window Flash Notify: Test UI Flash"
       }
     ],
     "configuration": {
-      "title": "Window Flash Notify",
+      "title": "窗口闪烁通知 / Window Flash Notify",
       "properties": {
         "windowFlashNotify.flashUntilForeground": {
           "type": "boolean",
           "default": true,
-          "description": "When enabled, flash the taskbar until the VS Code window becomes foreground."
+          "description": "持续闪烁直到 VS Code 窗口回到前台。/ Flash the taskbar until the VS Code window becomes foreground."
         },
         "windowFlashNotify.flashCount": {
           "type": "number",
           "default": 8,
           "minimum": 1,
           "maximum": 100,
-          "description": "Number of flashes to request when windowFlashNotify.flashUntilForeground is disabled."
+          "description": "当 windowFlashNotify.flashUntilForeground 关闭时请求的闪烁次数。/ Number of flashes to request when windowFlashNotify.flashUntilForeground is disabled."
         },
         "windowFlashNotify.showInternalNotification": {
           "type": "boolean",
           "default": false,
-          "description": "Also show a VS Code internal notification after receiving a relayed request."
+          "description": "收到 relay 请求后同时显示 VS Code 内部通知。/ Also show a VS Code internal notification after receiving a relayed request."
         }
       }
     }

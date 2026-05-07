@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.1.1
+
+- Make the main README Chinese-first with English reference content.
+- Add bilingual descriptions for UI and relay extension settings.
+- Add bilingual relay README content for the relay Marketplace page.
+
 ## 0.1.0
 
 - Switch to the two-extension relay architecture.

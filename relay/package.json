@@ -1,8 +1,8 @@
 {
   "name": "vscode-window-flash-notify-relay",
   "displayName": "Window Flash Notify Relay",
-  "description": "Relay localhost notifications from remote VS Code workspaces to the local Window Flash Notify UI extension.",
-  "version": "0.1.0",
+  "description": "从 workspace localhost 接收通知并转发给本地 UI 扩展 / Relay workspace localhost notifications to the local UI extension.",
+  "version": "0.1.1",
   "publisher": "qqqasdwx",
   "license": "MIT",
   "repository": {
@@ -45,44 +45,44 @@
     "commands": [
       {
         "command": "windowFlashNotifyRelay.copyCurlCommand",
-        "title": "Window Flash Notify Relay: Copy Curl Command"
+        "title": "窗口闪烁通知 Relay: 复制 Curl 命令 / Window Flash Notify Relay: Copy Curl Command"
       },
       {
         "command": "windowFlashNotifyRelay.testFlash",
-        "title": "Window Flash Notify Relay: Test Flash"
+        "title": "窗口闪烁通知 Relay: 测试闪烁 / Window Flash Notify Relay: Test Flash"
       }
     ],
     "configuration": {
-      "title": "Window Flash Notify Relay",
+      "title": "窗口闪烁通知 Relay / Window Flash Notify Relay",
       "properties": {
         "windowFlashNotifyRelay.basePort": {
           "type": "number",
           "default": 7531,
           "minimum": 1024,
           "maximum": 65535,
-          "description": "First port to try when starting the workspace notification HTTP server."
+          "description": "启动 workspace 通知 HTTP server 时首先尝试的端口。/ First port to try when starting the workspace notification HTTP server."
         },
         "windowFlashNotifyRelay.portSearchRange": {
           "type": "number",
           "default": 10,
           "minimum": 1,
           "maximum": 100,
-          "description": "Number of ports to try, starting from windowFlashNotifyRelay.basePort."
+          "description": "从 windowFlashNotifyRelay.basePort 开始尝试的端口数量。/ Number of ports to try, starting from windowFlashNotifyRelay.basePort."
         },
         "windowFlashNotifyRelay.listenHost": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "Host address for the workspace HTTP server. Keep 127.0.0.1 for local-only access from hooks running in the same workspace machine."
+          "description": "workspace HTTP server 的绑定地址。保持 127.0.0.1 可限制为同一 workspace 机器上的 hook 本地访问。/ Host address for the workspace HTTP server. Keep 127.0.0.1 for local-only access from hooks running in the same workspace machine."
         },
         "windowFlashNotifyRelay.authToken": {
           "type": "string",
           "default": "",
-          "description": "Optional token required in the X-Window-Flash-Token header or token query parameter."
+          "description": "可选鉴权 token，可通过 X-Window-Flash-Token header 或 token query 参数传入。/ Optional token required in the X-Window-Flash-Token header or token query parameter."
         },
         "windowFlashNotifyRelay.writePortFile": {
           "type": "boolean",
           "default": true,
-          "description": "Write .vscode/window-flash-notify-port.json into each workspace folder for scripts to discover the relay server."
+          "description": "向每个 workspace folder 写入 .vscode/window-flash-notify-port.json，方便脚本发现 relay server。/ Write .vscode/window-flash-notify-port.json into each workspace folder for scripts to discover the relay server."
         }
       }
     }
