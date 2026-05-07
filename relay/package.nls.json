@@ -1,0 +1,10 @@
+{
+  "extension.description": "Relay localhost workspace notifications to the local Window Flash Notify UI extension.",
+  "command.copyCurlCommand.title": "Window Flash Notify Relay: Copy Curl Command",
+  "command.testFlash.title": "Window Flash Notify Relay: Test Flash",
+  "configuration.title": "Window Flash Notify Relay",
+  "configuration.basePort.description": "First port to try when starting the workspace notification HTTP server.",
+  "configuration.portSearchRange.description": "Number of ports to try, starting from windowFlashNotifyRelay.basePort.",
+  "configuration.listenHost.description": "Host address for the workspace HTTP server. Keep 127.0.0.1 for local-only access from hooks running on the same workspace machine.",
+  "configuration.authToken.description": "Optional token required in the X-Window-Flash-Token header or token query parameter."
+}

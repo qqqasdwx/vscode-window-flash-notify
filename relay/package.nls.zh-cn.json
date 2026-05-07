@@ -1,0 +1,10 @@
+{
+  "extension.description": "从 workspace localhost 接收通知，并转发给本地 Window Flash Notify UI 扩展。",
+  "command.copyCurlCommand.title": "Window Flash Notify Relay: 复制 Curl 命令",
+  "command.testFlash.title": "Window Flash Notify Relay: 测试闪烁",
+  "configuration.title": "Window Flash Notify Relay",
+  "configuration.basePort.description": "启动 workspace 通知 HTTP server 时首先尝试的端口。",
+  "configuration.portSearchRange.description": "从 windowFlashNotifyRelay.basePort 开始尝试的端口数量。",
+  "configuration.listenHost.description": "workspace HTTP server 的绑定地址。保持 127.0.0.1 可限制为同一 workspace 机器上的 hook 本地访问。",
+  "configuration.authToken.description": "可选鉴权 token，可通过 X-Window-Flash-Token header 或 token query 参数传入。"
+}

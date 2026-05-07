@@ -15,31 +15,17 @@ interface NotifyPayload {
   showInternalNotification?: boolean;
 }
 
-interface PortInfo {
-  role: "relay";
-  port: number;
-  listenHost: string;
-  endpoints: {
-    local: string;
-  };
-  workspaceName: string;
-  workspacePath: string;
-  workspaceHints: string[];
-  uiCommand: string;
-  pid: number;
-  platform: NodeJS.Platform;
-  timestamp: string;
-  tokenRequired: boolean;
-}
-
 const uiNotifyCommand = "windowFlashNotify.notify";
+const endpointEnvVar = "WINDOW_FLASH_NOTIFY_ENDPOINT";
 const output = vscode.window.createOutputChannel("Window Flash Notify Relay");
 
 let server: http.Server | undefined;
 let activePort: number | undefined;
-let activePortInfo: PortInfo | undefined;
+let activeEndpoint: string | undefined;
+let extensionContext: vscode.ExtensionContext | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  extensionContext = context;
   output.appendLine("Activating Window Flash Notify Relay");
 
   context.subscriptions.push(output);
@@ -97,12 +83,9 @@ async function startServer(): Promise<void> {
   });
 
   activePort = port;
-  activePortInfo = makePortInfo(port, listenHost);
+  activeEndpoint = `http://${listenHost}:${port}/notify`;
+  updateTerminalEnvironment(activeEndpoint);
   output.appendLine(`Listening on http://${listenHost}:${port}`);
-
-  if (config.get<boolean>("writePortFile", true)) {
-    await writePortFiles(activePortInfo);
-  }
 }
 
 async function stopServer(): Promise<void> {
@@ -113,9 +96,9 @@ async function stopServer(): Promise<void> {
     await new Promise<void>((resolve) => runningServer.close(() => resolve()));
   }
 
-  await removePortFiles();
+  extensionContext?.environmentVariableCollection.delete(endpointEnvVar);
   activePort = undefined;
-  activePortInfo = undefined;
+  activeEndpoint = undefined;
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -125,6 +108,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         ok: true,
         role: "relay",
         port: activePort,
+        endpoint: activeEndpoint,
+        endpointEnvVar,
         workspaceName: getWorkspaceName(),
         workspacePath: getPrimaryWorkspacePath(),
         workspaceHints: getWorkspaceMatchHints(),
@@ -259,62 +244,23 @@ function findAvailablePort(startPort: number, range: number, listenHost: string)
   });
 }
 
-function makePortInfo(port: number, listenHost: string): PortInfo {
-  const token = getConfig().get<string>("authToken", "");
-
-  return {
-    role: "relay",
-    port,
-    listenHost,
-    endpoints: {
-      local: `http://${listenHost}:${port}/notify`
-    },
-    workspaceName: getWorkspaceName(),
-    workspacePath: getPrimaryWorkspacePath(),
-    workspaceHints: getWorkspaceMatchHints(),
-    uiCommand: uiNotifyCommand,
-    pid: process.pid,
-    platform: process.platform,
-    timestamp: new Date().toISOString(),
-    tokenRequired: token.length > 0
-  };
-}
-
-async function writePortFiles(portInfo: PortInfo): Promise<void> {
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    try {
-      const vscodeDir = vscode.Uri.joinPath(folder.uri, ".vscode");
-      const portFile = vscode.Uri.joinPath(vscodeDir, "window-flash-notify-port.json");
-      await vscode.workspace.fs.createDirectory(vscodeDir);
-      await vscode.workspace.fs.writeFile(
-        portFile,
-        Buffer.from(JSON.stringify(portInfo, null, 2), "utf8")
-      );
-      output.appendLine(`Wrote ${portFile.toString()}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      output.appendLine(`Failed to write port file for ${folder.uri.toString()}: ${message}`);
-    }
+function updateTerminalEnvironment(endpoint: string): void {
+  if (!extensionContext) {
+    return;
   }
-}
 
-async function removePortFiles(): Promise<void> {
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    const portFile = vscode.Uri.joinPath(folder.uri, ".vscode", "window-flash-notify-port.json");
-    try {
-      const data = await vscode.workspace.fs.readFile(portFile);
-      const parsed = JSON.parse(Buffer.from(data).toString("utf8")) as { pid?: number; role?: string };
-      if (parsed.pid === process.pid && parsed.role === "relay") {
-        await vscode.workspace.fs.delete(portFile);
-      }
-    } catch {
-      // Ignore missing or stale files.
-    }
-  }
+  const collection = extensionContext.environmentVariableCollection;
+  collection.persistent = false;
+  collection.description = "Window Flash Notify Relay endpoint";
+  collection.replace(endpointEnvVar, endpoint, {
+    applyAtProcessCreation: true,
+    applyAtShellIntegration: true
+  });
+  output.appendLine(`Set terminal environment: ${endpointEnvVar}=${endpoint}`);
 }
 
 function buildCurlCommand(): string {
-  const endpoint = activePortInfo?.endpoints.local || "http://127.0.0.1:7531/notify";
+  const endpoint = activeEndpoint || "http://127.0.0.1:7531/notify";
   const token = getConfig().get<string>("authToken", "");
   const tokenHeader = token ? ` \\\n  -H 'X-Window-Flash-Token: ${shellSingleQuote(token)}'` : "";
   const body = JSON.stringify({

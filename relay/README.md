@@ -1,18 +1,24 @@
 # Window Flash Notify Relay
 
-Window Flash Notify 的 workspace 端 relay。
+中文 | [English](README.en.md)
 
-它运行在当前 VS Code workspace 所在机器，监听 `127.0.0.1`，接收 `POST /notify`，然后转发给本地 UI 扩展命令 `windowFlashNotify.notify`。
+Window Flash Notify Relay 是 workspace 端扩展。它运行在当前 VS Code workspace 所在机器，监听 `127.0.0.1`，接收脚本发送的 `POST /notify`，再转发给本地 UI 端扩展。
 
-适合 Remote SSH、WSL、Dev Container、Vagrant 或本地 workspace 中需要从终端 hook 发送通知的场景。
+通常需要和 UI 端扩展一起安装：
 
-## English
+```text
+qqqasdwx.vscode-window-flash-notify
+qqqasdwx.vscode-window-flash-notify-relay
+```
 
-Workspace-side relay for Window Flash Notify.
+适合 Remote SSH、WSL、Dev Container、Vagrant 或本地 workspace 中需要从脚本发送完成提醒的场景。
 
-It listens on `127.0.0.1` inside the current VS Code workspace machine, accepts
-`POST /notify`, and forwards the payload to the local UI extension command
-`windowFlashNotify.notify`.
+## 快速测试
 
-Install this extension in Remote SSH, WSL, Dev Container, Vagrant, or local
-workspaces where terminal hooks need a localhost endpoint.
+Relay 会向 VS Code 集成终端注入 `WINDOW_FLASH_NOTIFY_ENDPOINT`。如果当前终端里没有这个变量，请新开一个 VS Code 终端。
+
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
+  -H 'Content-Type: application/json' \
+  --data '{"message":"Task finished","type":"info","action":"flash"}'
+```

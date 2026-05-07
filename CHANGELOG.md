@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.1.2
+
+- Replace inline bilingual manifest strings with VS Code `package.nls` localization files.
+- Split README content into Chinese default docs and separate English docs.
+- Generalize examples from a tool-specific hook to a generic shell hook.
+- Stop writing workspace port files; the relay now injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code terminals.
+
 ## 0.1.1
 
 - Make the main README Chinese-first with English reference content.
@@ -13,7 +20,7 @@
   `FlashWindowEx`; it no longer starts an HTTP server.
 - Add `qqqasdwx.vscode-window-flash-notify-relay`, a workspace extension that
   listens on `127.0.0.1` and forwards notifications to the UI extension.
-- Update the Codex hook path to use `http://127.0.0.1:<port>/notify` from the
+- Update hook examples to use `http://127.0.0.1:<port>/notify` from the
   workspace machine.
 
 ## 0.0.7
@@ -29,7 +36,7 @@
 - Initial preview release.
 - Starts a local HTTP server from the VS Code UI extension host.
 - Flashes the matching VS Code taskbar window on Windows without stealing focus.
-- Writes `.vscode/window-flash-notify-port.json` for scripts running in terminals, SSH sessions, or VMs.
+- Writes endpoint metadata for scripts running in terminals, SSH sessions, or VMs.
 
 ## 0.0.2
 

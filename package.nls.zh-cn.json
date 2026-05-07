@@ -1,0 +1,8 @@
+{
+  "extension.description": "从 workspace 通知本地 Windows VS Code 窗口闪烁任务栏图标，不自动抢焦点。",
+  "command.testFlash.title": "Window Flash Notify: 测试 UI 闪烁",
+  "configuration.title": "Window Flash Notify",
+  "configuration.flashUntilForeground.description": "持续闪烁任务栏图标，直到 VS Code 窗口回到前台。",
+  "configuration.flashCount.description": "关闭 windowFlashNotify.flashUntilForeground 时请求的闪烁次数。",
+  "configuration.showInternalNotification.description": "收到 relay 请求后，同时显示 VS Code 内部通知。"
+}
