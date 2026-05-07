@@ -1,11 +1,8 @@
 .git/**
-.github/**
 .vscode/**
 .vscode-test/**
 .gitignore
-node_modules/**
 src/**
-relay/**
 tsconfig.json
 package-lock.json
 *.vsix

@@ -1,8 +1,8 @@
 {
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
-  "description": "Flash the current VS Code window from terminal, SSH, VM, or background scripts without stealing focus.",
-  "version": "0.0.7",
+  "description": "Flash the current Windows VS Code window when the workspace relay receives a terminal notification.",
+  "version": "0.1.0",
   "publisher": "qqqasdwx",
   "license": "MIT",
   "repository": {
@@ -29,10 +29,11 @@
     "codex"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onUri",
+    "onCommand:windowFlashNotify.notify",
+    "onCommand:windowFlashNotify.flashWindow",
+    "onCommand:windowFlashNotify.focusWindow",
     "onCommand:windowFlashNotify.testFlash",
-    "onCommand:windowFlashNotify.copyCurlCommand"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "extensionKind": [
@@ -42,45 +43,12 @@
     "commands": [
       {
         "command": "windowFlashNotify.testFlash",
-        "title": "Window Flash Notify: Test Flash"
-      },
-      {
-        "command": "windowFlashNotify.copyCurlCommand",
-        "title": "Window Flash Notify: Copy Curl Command"
+        "title": "Window Flash Notify: Test UI Flash"
       }
     ],
     "configuration": {
       "title": "Window Flash Notify",
       "properties": {
-        "windowFlashNotify.basePort": {
-          "type": "number",
-          "default": 7531,
-          "minimum": 1024,
-          "maximum": 65535,
-          "description": "First port to try when starting the local notification HTTP server."
-        },
-        "windowFlashNotify.portSearchRange": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "maximum": 100,
-          "description": "Number of ports to try, starting from windowFlashNotify.basePort."
-        },
-        "windowFlashNotify.listenHost": {
-          "type": "string",
-          "default": "127.0.0.1",
-          "description": "Host address for the local HTTP server. Keep 127.0.0.1 unless your VM cannot reach the host loopback via its gateway."
-        },
-        "windowFlashNotify.gatewayHost": {
-          "type": "string",
-          "default": "10.0.2.2",
-          "description": "Host address that guests such as Vagrant/VirtualBox VMs can use to reach this machine."
-        },
-        "windowFlashNotify.authToken": {
-          "type": "string",
-          "default": "",
-          "description": "Optional token required in the X-Window-Flash-Token header or token query parameter."
-        },
         "windowFlashNotify.flashUntilForeground": {
           "type": "boolean",
           "default": true,
@@ -96,33 +64,22 @@
         "windowFlashNotify.showInternalNotification": {
           "type": "boolean",
           "default": false,
-          "description": "Also show a VS Code internal notification after receiving a request."
-        },
-        "windowFlashNotify.showToast": {
-          "type": "boolean",
-          "default": false,
-          "description": "Also show a native desktop notification. Toast click-to-focus is experimental; taskbar flashing is the stable notification path."
-        },
-        "windowFlashNotify.toastTimeout": {
-          "type": "number",
-          "default": 15,
-          "minimum": 1,
-          "maximum": 300,
-          "description": "Native desktop notification timeout in seconds."
-        },
-        "windowFlashNotify.writePortFile": {
-          "type": "boolean",
-          "default": true,
-          "description": "Write .vscode/window-flash-notify-port.json into each workspace folder for scripts to discover the server."
+          "description": "Also show a VS Code internal notification after receiving a relayed request."
         }
       }
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "npm run compile:ui && npm run compile:relay",
+    "compile:ui": "tsc -p ./",
+    "compile:relay": "tsc -p relay",
     "watch": "tsc -watch -p ./",
-    "check": "tsc -p ./ --noEmit",
-    "package": "vsce package"
+    "check": "npm run check:ui && npm run check:relay",
+    "check:ui": "tsc -p ./ --noEmit",
+    "check:relay": "tsc -p relay --noEmit",
+    "package": "npm run package:ui && npm run package:relay",
+    "package:ui": "vsce package",
+    "package:relay": "cd relay && ../node_modules/.bin/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.19.24",

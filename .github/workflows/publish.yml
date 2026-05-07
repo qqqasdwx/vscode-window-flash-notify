@@ -34,22 +34,34 @@ jobs:
       - name: Validate tag matches package version
         run: |
           VERSION="$(node -p "require('./package.json').version")"
+          RELAY_VERSION="$(node -p "require('./relay/package.json').version")"
           TAG="${GITHUB_REF_NAME#v}"
           if [ "$VERSION" != "$TAG" ]; then
             echo "package.json version ($VERSION) does not match tag ($TAG)"
             exit 1
           fi
+          if [ "$RELAY_VERSION" != "$TAG" ]; then
+            echo "relay/package.json version ($RELAY_VERSION) does not match tag ($TAG)"
+            exit 1
+          fi
 
       - name: Package VSIX
-        run: npx vsce package
+        run: npm run package
 
-      - name: Publish to VS Code Marketplace
+      - name: Publish UI extension to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx vsce publish -p "$VSCE_PAT"
 
+      - name: Publish relay extension to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: cd relay && ../node_modules/.bin/vsce publish -p "$VSCE_PAT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.vsix"
+          files: |
+            *.vsix
+            relay/*.vsix
           generate_release_notes: true

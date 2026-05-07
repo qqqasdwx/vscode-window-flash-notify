@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.1.0
+
+- Switch to the two-extension relay architecture.
+- The UI extension now only registers local commands and calls Windows
+  `FlashWindowEx`; it no longer starts an HTTP server.
+- Add `qqqasdwx.vscode-window-flash-notify-relay`, a workspace extension that
+  listens on `127.0.0.1` and forwards notifications to the UI extension.
+- Update the Codex hook path to use `http://127.0.0.1:<port>/notify` from the
+  workspace machine.
+
 ## 0.0.7
 
 - Stop falling back to every visible VS Code window when title matching fails.

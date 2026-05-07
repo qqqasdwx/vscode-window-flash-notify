@@ -1,58 +1,47 @@
-import * as http from "node:http";
-import * as vscode from "vscode";
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
+import * as vscode from "vscode";
 
 type NotifyType = "info" | "warning" | "error";
 type NotifyAction = "flash" | "focus" | "none";
 
 interface NotifyPayload {
   message?: string;
-  title?: string;
   type?: NotifyType;
   action?: NotifyAction;
-  workspacePath?: string;
   workspaceName?: string;
+  workspacePath?: string;
+  workspaceHints?: string[];
   showInternalNotification?: boolean;
-  showToast?: boolean;
-  toastTimeout?: number;
 }
 
-interface PortInfo {
-  port: number;
-  listenHost: string;
-  gatewayHost: string;
-  endpoints: {
-    local: string;
-    gateway: string;
-  };
+interface NotifyResult {
+  success: true;
+  action: NotifyAction;
   workspaceName: string;
   workspaceHints: string[];
-  pid: number;
   platform: NodeJS.Platform;
-  timestamp: string;
-  tokenRequired: boolean;
 }
 
-let server: http.Server | undefined;
-let activePort: number | undefined;
-let activePortInfo: PortInfo | undefined;
 const output = vscode.window.createOutputChannel("Window Flash Notify");
-let extensionId = "qqqasdwx.vscode-window-flash-notify";
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  extensionId = context.extension.id;
-  output.appendLine("Activating Window Flash Notify");
+export function activate(context: vscode.ExtensionContext): void {
+  output.appendLine("Activating Window Flash Notify UI");
 
   context.subscriptions.push(output);
   context.subscriptions.push(
-    vscode.window.registerUriHandler({
-      handleUri: async (uri) => {
-        output.appendLine(`URI received: ${uri.toString(true)}`);
-        const params = new URLSearchParams(uri.query);
-        const workspaceName = params.get("workspaceName") || getWorkspaceName();
-        await runWindowsWindowAction("focus", getWorkspaceMatchHints(workspaceName));
-      }
+    vscode.commands.registerCommand("windowFlashNotify.notify", async (payload?: NotifyPayload) => {
+      return handleNotification(payload || {});
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.flashWindow", async (payload?: NotifyPayload) => {
+      return handleNotification({ ...(payload || {}), action: "flash" });
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.focusWindow", async (payload?: NotifyPayload) => {
+      return handleNotification({ ...(payload || {}), action: "focus" });
     })
   );
   context.subscriptions.push(
@@ -64,111 +53,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     })
   );
-  context.subscriptions.push(
-    vscode.commands.registerCommand("windowFlashNotify.copyCurlCommand", async () => {
-      const command = buildCurlCommand();
-      await vscode.env.clipboard.writeText(command);
-      vscode.window.showInformationMessage("Window Flash Notify curl command copied.");
-    })
-  );
-
-  await startServer();
-
-  context.subscriptions.push({
-    dispose: () => {
-      void stopServer();
-    }
-  });
 }
 
-export async function deactivate(): Promise<void> {
-  await stopServer();
+export function deactivate(): void {
+  output.appendLine("Deactivating Window Flash Notify UI");
 }
 
-async function startServer(): Promise<void> {
-  const config = getConfig();
-  const basePort = config.get<number>("basePort", 7531);
-  const range = config.get<number>("portSearchRange", 10);
-  const listenHost = config.get<string>("listenHost", "127.0.0.1");
-
-  const port = await findAvailablePort(basePort, range, listenHost);
-  server = http.createServer((req, res) => {
-    void handleRequest(req, res);
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    if (!server) {
-      reject(new Error("Server was not initialized"));
-      return;
-    }
-
-    server.once("error", reject);
-    server.listen(port, listenHost, () => {
-      server?.off("error", reject);
-      resolve();
-    });
-  });
-
-  activePort = port;
-  activePortInfo = makePortInfo(port, listenHost);
-  output.appendLine(`Listening on http://${listenHost}:${port}`);
-
-  if (config.get<boolean>("writePortFile", true)) {
-    await writePortFiles(activePortInfo);
-  }
-}
-
-async function stopServer(): Promise<void> {
-  const runningServer = server;
-  server = undefined;
-
-  if (runningServer) {
-    await new Promise<void>((resolve) => runningServer.close(() => resolve()));
-  }
-
-  await removePortFiles();
-  activePort = undefined;
-  activePortInfo = undefined;
-}
-
-async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  try {
-    if (req.method === "GET" && req.url?.startsWith("/health")) {
-      sendJson(res, 200, {
-        ok: true,
-        port: activePort,
-        workspaceName: getWorkspaceName(),
-        workspaceHints: getWorkspaceMatchHints()
-      });
-      return;
-    }
-
-    if (req.method !== "POST" || !req.url?.startsWith("/notify")) {
-      sendJson(res, 404, { error: "Not found" });
-      return;
-    }
-
-    if (!isAuthorized(req)) {
-      sendJson(res, 401, { error: "Unauthorized" });
-      return;
-    }
-
-    const raw = await readRequestBody(req);
-    const payload = parsePayload(raw);
-    await handleNotification(payload);
-    sendJson(res, 200, { success: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    output.appendLine(`Request failed: ${message}`);
-    sendJson(res, 400, { error: message });
-  }
-}
-
-async function handleNotification(payload: NotifyPayload): Promise<void> {
+async function handleNotification(payload: NotifyPayload): Promise<NotifyResult> {
   const message = payload.message || "Notification received";
   const action = payload.action || "flash";
   const type = payload.type || "info";
-  const workspaceHints = getWorkspaceMatchHints(payload.workspaceName, payload.workspacePath);
+  const workspaceHints = getWorkspaceMatchHints(
+    payload.workspaceName,
+    payload.workspacePath,
+    payload.workspaceHints
+  );
   const workspaceName = workspaceHints[0] || getWorkspaceName();
 
   output.appendLine(
@@ -181,153 +80,27 @@ async function handleNotification(payload: NotifyPayload): Promise<void> {
     await runWindowsWindowAction("focus", workspaceHints);
   }
 
-  const showToast = payload.showToast ?? getConfig().get<boolean>("showToast", false);
-  if (showToast) {
-    await showToastNotification(payload, workspaceName, workspaceHints);
-  }
-
   const showInternal =
     payload.showInternalNotification ?? getConfig().get<boolean>("showInternalNotification", false);
 
   if (showInternal) {
     await showInternalNotification(type, `[${workspaceName}] ${message}`, workspaceHints);
   }
+
+  return {
+    success: true,
+    action,
+    workspaceName,
+    workspaceHints,
+    platform: process.platform
+  };
 }
 
-async function showToastNotification(
-  payload: NotifyPayload,
-  workspaceName: string,
+async function showInternalNotification(
+  type: NotifyType,
+  message: string,
   workspaceHints: string[]
 ): Promise<void> {
-  if (process.platform !== "win32") {
-    output.appendLine(`Skipping native toast; platform is ${process.platform}`);
-    return;
-  }
-
-  const message = payload.message || "Notification received";
-  const title = payload.title || `${workspaceName} - Window Flash Notify`;
-  const timeout = payload.toastTimeout ?? getConfig().get<number>("toastTimeout", 15);
-
-  output.appendLine(`Showing interactive toast: ${title} - ${message}`);
-  runInteractiveToastPowerShell(title, message, workspaceName, workspaceHints, timeout);
-}
-
-function buildFocusUri(workspaceName: string): string {
-  const uri = vscode.Uri.from({
-    scheme: vscode.env.uriScheme,
-    authority: extensionId,
-    path: "/focus",
-    query: new URLSearchParams({ workspaceName }).toString()
-  });
-  return uri.toString(true);
-}
-
-function runInteractiveToastPowerShell(
-  title: string,
-  message: string,
-  workspaceName: string,
-  workspaceHints: string[],
-  timeout: number
-): void {
-  const env = {
-    ...process.env,
-    WINDOW_FLASH_NOTIFY_TOAST_TITLE: title,
-    WINDOW_FLASH_NOTIFY_TOAST_MESSAGE: message,
-    WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(timeout),
-    WINDOW_FLASH_NOTIFY_ACTION: "focus",
-    WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceName,
-    WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS: workspaceHints.join("\n"),
-    WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName,
-    WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: "0",
-    WINDOW_FLASH_NOTIFY_COUNT: "1"
-  };
-
-  spawnPowerShellDetached(getInteractiveToastPowerShell(), env);
-}
-
-function getInteractiveToastPowerShell(): string {
-  return `
-$ErrorActionPreference = 'Stop'
-
-$title = $env:WINDOW_FLASH_NOTIFY_TOAST_TITLE
-$message = $env:WINDOW_FLASH_NOTIFY_TOAST_MESSAGE
-$timeoutSeconds = 15
-if ($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT) {
-  [void][int]::TryParse($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT, [ref]$timeoutSeconds)
-}
-
-function Escape-Xml([string]$value) {
-  return [System.Security.SecurityElement]::Escape($value)
-}
-
-$escapedTitle = Escape-Xml $title
-$escapedMessage = Escape-Xml $message
-
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-
-$xmlText = @"
-<toast>
-  <visual>
-    <binding template="ToastGeneric">
-      <text>$escapedTitle</text>
-      <text>$escapedMessage</text>
-    </binding>
-  </visual>
-  <actions>
-    <action content="Focus VS Code" arguments="focus" activationType="foreground" />
-  </actions>
-</toast>
-"@
-
-$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml($xmlText)
-$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$done = New-Object System.Threading.ManualResetEvent($false)
-$script:activated = $false
-
-$toast.add_Activated({
-  $script:activated = $true
-  [void]$done.Set()
-})
-
-$toast.add_Dismissed({
-  [void]$done.Set()
-})
-
-$toast.add_Failed({
-  [void]$done.Set()
-})
-
-$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Visual Studio Code")
-$notifier.Show($toast)
-
-[void]$done.WaitOne([Math]::Max(1, $timeoutSeconds) * 1000)
-
-if ($script:activated) {
-${getWindowActionPowerShell()}
-}
-`;
-}
-
-function spawnPowerShellDetached(script: string, env: NodeJS.ProcessEnv): void {
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const child = spawn("powershell.exe", [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-EncodedCommand",
-    encoded
-  ], {
-    env,
-    windowsHide: true,
-    detached: true,
-    stdio: "ignore"
-  });
-  child.unref();
-}
-
-async function showInternalNotification(type: NotifyType, message: string, workspaceHints: string[]): Promise<void> {
   const focus = "Focus";
   const flashAgain = "Flash Again";
   let selected: string | undefined;
@@ -362,7 +135,6 @@ async function runWindowsWindowAction(action: "flash" | "focus", workspaceHints:
     WINDOW_FLASH_NOTIFY_ACTION: action,
     WINDOW_FLASH_NOTIFY_WORKSPACE: workspaceHints[0] || "",
     WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS: workspaceHints.join("\n"),
-    WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName,
     WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: flashUntilForeground ? "1" : "0",
     WINDOW_FLASH_NOTIFY_COUNT: String(flashCount)
   };
@@ -376,7 +148,6 @@ $ErrorActionPreference = 'Stop'
 $action = $env:WINDOW_FLASH_NOTIFY_ACTION
 $workspace = $env:WINDOW_FLASH_NOTIFY_WORKSPACE
 $workspaceHintsRaw = $env:WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS
-$product = $env:WINDOW_FLASH_NOTIFY_PRODUCT
 $untilForeground = $env:WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND -eq '1'
 $flashCount = 8
 if ($env:WINDOW_FLASH_NOTIFY_COUNT) {
@@ -574,145 +345,11 @@ async function runPowerShell(script: string, env: NodeJS.ProcessEnv): Promise<vo
   });
 }
 
-function isAuthorized(req: http.IncomingMessage): boolean {
-  const token = getConfig().get<string>("authToken", "");
-  if (!token) {
-    return true;
-  }
-
-  const header = req.headers["x-window-flash-token"];
-  if (header === token) {
-    return true;
-  }
-
-  const url = new URL(req.url || "/", "http://localhost");
-  return url.searchParams.get("token") === token;
-}
-
-function parsePayload(raw: string): NotifyPayload {
-  if (!raw.trim()) {
-    return {};
-  }
-
-  const parsed = JSON.parse(raw) as NotifyPayload;
-  if (parsed.type && !["info", "warning", "error"].includes(parsed.type)) {
-    throw new Error(`Invalid notification type: ${parsed.type}`);
-  }
-  if (parsed.action && !["flash", "focus", "none"].includes(parsed.action)) {
-    throw new Error(`Invalid action: ${parsed.action}`);
-  }
-  return parsed;
-}
-
-function readRequestBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk: string) => {
-      body += chunk;
-      if (body.length > 64 * 1024) {
-        reject(new Error("Request body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
-}
-
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  const text = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Content-Length": Buffer.byteLength(text)
-  });
-  res.end(text);
-}
-
-function findAvailablePort(startPort: number, range: number, listenHost: string): Promise<number> {
-  const attempts = Array.from({ length: range }, (_, index) => startPort + index);
-
-  return attempts.reduce<Promise<number>>(
-    (previous, port) =>
-      previous.catch(() =>
-        new Promise<number>((resolve, reject) => {
-          const probe = http.createServer();
-          probe.once("error", reject);
-          probe.listen(port, listenHost, () => {
-            probe.close(() => resolve(port));
-          });
-        })
-      ),
-    Promise.reject(new Error("No port tried yet"))
-  ).catch(() => {
-    throw new Error(`No available port found in ${startPort}-${startPort + range - 1}`);
-  });
-}
-
-function makePortInfo(port: number, listenHost: string): PortInfo {
-  const gatewayHost = getConfig().get<string>("gatewayHost", "10.0.2.2");
-  const token = getConfig().get<string>("authToken", "");
-
-  return {
-    port,
-    listenHost,
-    gatewayHost,
-    endpoints: {
-      local: `http://${listenHost}:${port}/notify`,
-      gateway: `http://${gatewayHost}:${port}/notify`
-    },
-    workspaceName: getWorkspaceName(),
-    workspaceHints: getWorkspaceMatchHints(),
-    pid: process.pid,
-    platform: process.platform,
-    timestamp: new Date().toISOString(),
-    tokenRequired: token.length > 0
-  };
-}
-
-async function writePortFiles(portInfo: PortInfo): Promise<void> {
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    try {
-      const vscodeDir = vscode.Uri.joinPath(folder.uri, ".vscode");
-      const portFile = vscode.Uri.joinPath(vscodeDir, "window-flash-notify-port.json");
-      await vscode.workspace.fs.createDirectory(vscodeDir);
-      await vscode.workspace.fs.writeFile(
-        portFile,
-        Buffer.from(JSON.stringify(portInfo, null, 2), "utf8")
-      );
-      output.appendLine(`Wrote ${portFile.toString()}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      output.appendLine(`Failed to write port file for ${folder.uri.toString()}: ${message}`);
-    }
-  }
-}
-
-async function removePortFiles(): Promise<void> {
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    const portFile = vscode.Uri.joinPath(folder.uri, ".vscode", "window-flash-notify-port.json");
-    try {
-      const data = await vscode.workspace.fs.readFile(portFile);
-      const parsed = JSON.parse(Buffer.from(data).toString("utf8")) as { pid?: number };
-      if (parsed.pid === process.pid) {
-        await vscode.workspace.fs.delete(portFile);
-      }
-    } catch {
-      // Ignore missing or stale files.
-    }
-  }
-}
-
-function buildCurlCommand(): string {
-  const endpoint = activePortInfo?.endpoints.gateway || "http://10.0.2.2:7531/notify";
-  const message = "Window Flash Notify test";
-  const token = getConfig().get<string>("authToken", "");
-  const tokenHeader = token ? ` \\\n  -H 'X-Window-Flash-Token: ${shellSingleQuote(token)}'` : "";
-
-  return `curl -fsS -X POST '${endpoint}' \\\n  -H 'Content-Type: application/json'${tokenHeader} \\\n  --data '{"message":"${message}","type":"info","action":"flash"}'`;
-}
-
-function getWorkspaceMatchHints(workspaceName?: string, workspacePath?: string): string[] {
+function getWorkspaceMatchHints(
+  workspaceName?: string,
+  workspacePath?: string,
+  providedHints: string[] = []
+): string[] {
   const hints: string[] = [];
   const addHint = (value: string | undefined): void => {
     const trimmed = value?.trim();
@@ -729,6 +366,11 @@ function getWorkspaceMatchHints(workspaceName?: string, workspacePath?: string):
     addHint(value);
     addHint(stripRemoteSuffix(value));
   };
+
+  for (const hint of providedHints) {
+    addNameVariants(hint);
+    addHint(basenameFromAnyPath(hint));
+  }
 
   addNameVariants(workspaceName);
   addNameVariants(getWorkspaceName());
@@ -775,8 +417,4 @@ function getWorkspaceName(): string {
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("windowFlashNotify");
-}
-
-function shellSingleQuote(value: string): string {
-  return value.replace(/'/g, "'\"'\"'");
 }

@@ -1,42 +1,51 @@
 # Window Flash Notify
 
-Flash the matching VS Code window from a terminal, SSH session, VM, or
-background script without stealing focus.
+Flash the matching Windows VS Code taskbar window from a terminal hook without
+stealing focus.
 
-The extension is designed for workflows where long-running tools finish in a
-remote shell and you want the Windows taskbar button for the right VS Code
-window to flash. For example: Windows host, Vagrant VM, Remote SSH, VS Code
-terminal, and Codex CLI hooks.
+This project uses two VS Code extensions:
 
-## What It Does
+- `qqqasdwx.vscode-window-flash-notify`: UI-side extension. Runs on the local
+  Windows VS Code UI host and calls `FlashWindowEx`.
+- `qqqasdwx.vscode-window-flash-notify-relay`: workspace-side relay. Runs where
+  the workspace terminal runs, listens on `127.0.0.1`, and forwards requests to
+  the UI-side command.
 
-- Starts a small HTTP server from the VS Code UI extension host.
-- Writes `.vscode/window-flash-notify-port.json` in the current workspace.
-- Accepts `POST /notify` requests from local scripts or a VM.
-- On Windows, calls `FlashWindowEx` for the matching VS Code window.
-- If no VS Code window title matches the workspace hints, returns an error
-  instead of flashing every VS Code window.
-- Does not bring VS Code to the foreground unless the request asks for
-  `"action": "focus"`.
+## Why Two Extensions
 
-## Quick Test From A Vagrant VM
+VS Code Remote has separate extension hosts. A workspace extension can listen
+on the remote machine's `127.0.0.1`, while a UI extension can call Windows APIs
+on the local desktop. This extension needs both abilities, so the relay and UI
+parts are separate extension IDs.
 
-When VS Code runs on the Windows host and your shell runs inside a typical
-Vagrant/VirtualBox VM, the host is usually reachable at `10.0.2.2`.
+## Install
+
+Install both extensions:
+
+```text
+qqqasdwx.vscode-window-flash-notify
+qqqasdwx.vscode-window-flash-notify-relay
+```
+
+In Remote SSH, WSL, Dev Container, or Vagrant workflows, install the relay in
+the remote/workspace side and keep the UI extension installed locally.
+
+## Quick Test
+
+The relay writes `.vscode/window-flash-notify-port.json` in the workspace. Use
+the `endpoints.local` URL from that file, or try the default:
 
 ```bash
-curl -fsS -X POST http://10.0.2.2:7531/notify \
+curl -fsS -X POST http://127.0.0.1:7531/notify \
   -H 'Content-Type: application/json' \
   --data '{"message":"Build finished","type":"info","action":"flash"}'
 ```
 
-If another VS Code window already uses port `7531`, inspect:
+Health check:
 
 ```bash
-cat .vscode/window-flash-notify-port.json
+curl -fsS http://127.0.0.1:7531/health
 ```
-
-Use the `endpoints.gateway` URL from that file.
 
 ## Codex Stop Hook Example
 
@@ -49,10 +58,10 @@ cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)"
 [ -n "$cwd" ] || cwd="${PWD:-unknown}"
 project="$(basename "$cwd")"
 
-endpoint="http://10.0.2.2:7531/notify"
+endpoint="http://127.0.0.1:7531/notify"
 if [ -f "$cwd/.vscode/window-flash-notify-port.json" ]; then
-  endpoint="$(jq -r '.endpoints.gateway // empty' "$cwd/.vscode/window-flash-notify-port.json" 2>/dev/null || true)"
-  [ -n "$endpoint" ] || endpoint="http://10.0.2.2:7531/notify"
+  endpoint="$(jq -r '.endpoints.local // empty' "$cwd/.vscode/window-flash-notify-port.json" 2>/dev/null || true)"
+  [ -n "$endpoint" ] || endpoint="http://127.0.0.1:7531/notify"
 fi
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
@@ -84,32 +93,38 @@ Fields:
   workspace name.
 - `workspacePath`: optional workspace path hint. Its basename is also used for
   window title matching.
+- `workspaceHints`: optional string array of extra title match hints.
 - `showInternalNotification`: optional per-request override for showing a VS
-  Code internal notification.
+  Code internal notification from the UI extension.
 
 ## Settings
 
-- `windowFlashNotify.basePort`: first port to try. Default: `7531`.
-- `windowFlashNotify.portSearchRange`: number of ports to try. Default: `10`.
-- `windowFlashNotify.listenHost`: bind address. Default: `127.0.0.1`.
-- `windowFlashNotify.gatewayHost`: guest-to-host address written to the port
-  file. Default: `10.0.2.2`.
-- `windowFlashNotify.authToken`: optional token required by requests.
+UI extension settings:
+
 - `windowFlashNotify.flashUntilForeground`: flash until the window becomes
   foreground. Default: `true`.
+- `windowFlashNotify.flashCount`: number of flashes when
+  `flashUntilForeground` is disabled. Default: `8`.
 - `windowFlashNotify.showInternalNotification`: also show a VS Code internal
   notification. Default: `false`.
-- `windowFlashNotify.showToast`: also show a native desktop notification.
-  Default: `false`. Toast click-to-focus is experimental; taskbar flashing is
-  the stable path.
+
+Relay extension settings:
+
+- `windowFlashNotifyRelay.basePort`: first relay port to try. Default: `7531`.
+- `windowFlashNotifyRelay.portSearchRange`: number of ports to try. Default:
+  `10`.
+- `windowFlashNotifyRelay.listenHost`: relay bind address. Default:
+  `127.0.0.1`.
+- `windowFlashNotifyRelay.authToken`: optional token required by requests.
+- `windowFlashNotifyRelay.writePortFile`: write
+  `.vscode/window-flash-notify-port.json`. Default: `true`.
 
 ## Notes
 
-This extension intentionally focuses on Windows because Windows exposes a
-stable taskbar flashing API. On non-Windows platforms the HTTP endpoint still
-works, but `flash` is a no-op.
+The UI extension intentionally focuses on Windows because Windows exposes a
+stable taskbar flashing API. On non-Windows local desktops, the relay endpoint
+still works, but UI-side `flash` is a no-op.
 
-Window matching is conservative. The extension uses hints such as
-`workspaceName`, the current VS Code workspace name, and workspace folder
-basenames. It does not fall back to flashing every VS Code window when those
-hints do not match any visible VS Code window title.
+Window matching is conservative. If no visible VS Code window title matches the
+workspace hints, the UI extension returns an error instead of flashing every VS
+Code window.

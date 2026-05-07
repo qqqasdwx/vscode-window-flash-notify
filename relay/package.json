@@ -1,0 +1,90 @@
+{
+  "name": "vscode-window-flash-notify-relay",
+  "displayName": "Window Flash Notify Relay",
+  "description": "Relay localhost notifications from remote VS Code workspaces to the local Window Flash Notify UI extension.",
+  "version": "0.1.0",
+  "publisher": "qqqasdwx",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qqqasdwx/vscode-window-flash-notify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qqqasdwx/vscode-window-flash-notify/issues"
+  },
+  "homepage": "https://github.com/qqqasdwx/vscode-window-flash-notify#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "notification",
+    "taskbar",
+    "flash",
+    "remote",
+    "ssh",
+    "vagrant",
+    "codex",
+    "relay"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:windowFlashNotifyRelay.copyCurlCommand",
+    "onCommand:windowFlashNotifyRelay.testFlash"
+  ],
+  "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "extensionDependencies": [
+    "qqqasdwx.vscode-window-flash-notify"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "windowFlashNotifyRelay.copyCurlCommand",
+        "title": "Window Flash Notify Relay: Copy Curl Command"
+      },
+      {
+        "command": "windowFlashNotifyRelay.testFlash",
+        "title": "Window Flash Notify Relay: Test Flash"
+      }
+    ],
+    "configuration": {
+      "title": "Window Flash Notify Relay",
+      "properties": {
+        "windowFlashNotifyRelay.basePort": {
+          "type": "number",
+          "default": 7531,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "First port to try when starting the workspace notification HTTP server."
+        },
+        "windowFlashNotifyRelay.portSearchRange": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Number of ports to try, starting from windowFlashNotifyRelay.basePort."
+        },
+        "windowFlashNotifyRelay.listenHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host address for the workspace HTTP server. Keep 127.0.0.1 for local-only access from hooks running in the same workspace machine."
+        },
+        "windowFlashNotifyRelay.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional token required in the X-Window-Flash-Token header or token query parameter."
+        },
+        "windowFlashNotifyRelay.writePortFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write .vscode/window-flash-notify-port.json into each workspace folder for scripts to discover the relay server."
+        }
+      }
+    }
+  }
+}
