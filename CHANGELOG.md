@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.1.6
+
+- Document current workspace-title based window targeting limitations.
+- Add a TODO for future VS Code/Electron process-chain based window targeting.
+- Add repository contributor guidelines.
+
 ## 0.1.5
 
 - Document the true minimum notification call: an empty `POST` request.
