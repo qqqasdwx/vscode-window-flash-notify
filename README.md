@@ -74,7 +74,7 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\",\"workspaceName\":\"${project}\",\"workspacePath\":\"${cwd}\"}" \
+  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\"}" \
   >/dev/null || true
 ```
 
@@ -84,21 +84,37 @@ curl -fsS --max-time 3 -X POST "$endpoint" \
 {
   "message": "Task finished",
   "type": "info",
-  "action": "flash",
-  "workspaceName": "my-project",
-  "workspacePath": "/path/to/my-project"
+  "action": "flash"
 }
 ```
 
 字段：
 
-- `message`：日志文本，也可用于 VS Code 内部通知。
-- `type`：`info`、`warning` 或 `error`。
-- `action`：`flash`、`focus` 或 `none`，默认 `flash`。
-- `workspaceName`：可选窗口标题匹配提示，默认当前 workspace 名称。
-- `workspacePath`：可选 workspace 路径提示，basename 也会用于匹配窗口标题。
-- `workspaceHints`：可选额外窗口标题匹配字符串数组。
-- `showInternalNotification`：可选，控制 UI 端是否显示 VS Code 内部通知。
+| 字段 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `message` | 否 | `"Notification received"` | 日志文本，也可用于 VS Code 内部通知。 |
+| `type` | 否 | `"info"` | 消息级别。见下方 `type` 枚举。 |
+| `action` | 否 | `"flash"` | 收到请求后的动作。见下方 `action` 枚举。 |
+| `workspaceName` | 否 | 当前 VS Code workspace 名称 | 窗口标题匹配提示。通常不需要调用方传入，relay 会自动补齐。 |
+| `workspacePath` | 否 | 当前 workspace 第一个 folder 路径 | workspace 路径匹配提示，basename 也会用于匹配窗口标题。通常不需要调用方传入。 |
+| `workspaceHints` | 否 | 自动根据当前 workspace 生成 | 额外窗口标题匹配字符串数组。只有需要覆盖默认匹配行为时才传。 |
+| `showInternalNotification` | 否 | UI 端设置 `windowFlashNotify.showInternalNotification` | 是否同时显示 VS Code 内部通知。 |
+
+`type` 枚举：
+
+| 值 | 含义 |
+| --- | --- |
+| `info` | 普通信息。用于成功、完成、一般提醒。 |
+| `warning` | 警告信息。用于需要注意但不一定失败的情况。 |
+| `error` | 错误信息。用于失败或需要立即处理的情况。 |
+
+`action` 枚举：
+
+| 值 | 含义 |
+| --- | --- |
+| `flash` | 闪烁匹配的 VS Code 窗口任务栏图标，不抢焦点。推荐默认值。 |
+| `focus` | 将匹配的 VS Code 窗口拉到前台，会打断当前焦点。 |
+| `none` | 不执行窗口动作，只保留日志/可选内部通知。 |
 
 ## 设置项
 

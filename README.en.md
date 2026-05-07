@@ -74,7 +74,7 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\",\"workspaceName\":\"${project}\",\"workspacePath\":\"${cwd}\"}" \
+  --data "{\"message\":\"Finished: ${project}\",\"type\":\"info\",\"action\":\"flash\"}" \
   >/dev/null || true
 ```
 
@@ -84,21 +84,37 @@ curl -fsS --max-time 3 -X POST "$endpoint" \
 {
   "message": "Task finished",
   "type": "info",
-  "action": "flash",
-  "workspaceName": "my-project",
-  "workspacePath": "/path/to/my-project"
+  "action": "flash"
 }
 ```
 
 Fields:
 
-- `message`: text for logs or optional VS Code internal notifications.
-- `type`: `info`, `warning`, or `error`.
-- `action`: `flash`, `focus`, or `none`. Default is `flash`.
-- `workspaceName`: optional window title match hint. Defaults to the current workspace name.
-- `workspacePath`: optional workspace path hint. Its basename is also used for window title matching.
-- `workspaceHints`: optional string array of extra title match hints.
-- `showInternalNotification`: optional override for showing a VS Code internal notification from the UI extension.
+| Field | Required | Default | Description |
+| --- | --- | --- | --- |
+| `message` | No | `"Notification received"` | Text for logs or optional VS Code internal notifications. |
+| `type` | No | `"info"` | Message level. See the `type` enum below. |
+| `action` | No | `"flash"` | Action to run after receiving the request. See the `action` enum below. |
+| `workspaceName` | No | Current VS Code workspace name | Window title match hint. Callers usually do not need to send this; the relay fills it automatically. |
+| `workspacePath` | No | First folder path in the current workspace | Workspace path match hint. Its basename is also used for title matching. Callers usually do not need to send this. |
+| `workspaceHints` | No | Generated from the current workspace | Extra window title match hints. Only send this when overriding the default matching behavior. |
+| `showInternalNotification` | No | UI setting `windowFlashNotify.showInternalNotification` | Also show a VS Code internal notification from the UI extension. |
+
+`type` enum:
+
+| Value | Meaning |
+| --- | --- |
+| `info` | Informational message for success, completion, or general reminders. |
+| `warning` | Warning message for cases that need attention but are not necessarily failures. |
+| `error` | Error message for failures or cases that need immediate attention. |
+
+`action` enum:
+
+| Value | Meaning |
+| --- | --- |
+| `flash` | Flash the matching VS Code taskbar button without stealing focus. Recommended default. |
+| `focus` | Bring the matching VS Code window to the foreground. This interrupts current focus. |
+| `none` | Do not run a window action; keep only logging and optional internal notification behavior. |
 
 ## Settings
 

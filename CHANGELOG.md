@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.1.4
+
+- Document notification request fields in tables, including required status,
+  defaults, and enum values.
+- Simplify hook examples to rely on relay-provided workspace metadata.
+
 ## 0.1.3
 
 - Remove the relay extension's hard dependency on the UI extension so it can
