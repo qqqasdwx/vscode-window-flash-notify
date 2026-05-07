@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.1.7
+
+- Verify the publish workflow with Node 24 action runtime versions.
+
 ## 0.1.6
 
 - Document current workspace-title based window targeting limitations.
