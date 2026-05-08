@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { basename } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import * as vscode from "vscode";
 
 type NotifyType = "info" | "warning" | "error";
@@ -17,6 +19,9 @@ interface NotifyPayload {
   sound?: boolean;
   showToast?: boolean;
   toastTimeout?: number;
+  relayRequestId?: string;
+  relayCallbackUri?: string;
+  relayCallbackToken?: string;
 }
 
 interface NotifyResult {
@@ -25,15 +30,37 @@ interface NotifyResult {
   workspaceName: string;
   workspaceHints: string[];
   platform: NodeJS.Platform;
+  implementation: string;
+}
+
+interface UiHealthResult {
+  ok: true;
+  role: "ui";
+  id: string;
+  version: string;
+  platform: NodeJS.Platform;
+  implementation: string;
 }
 
 const defaultExtensionId = "qqqasdwx.vscode-window-flash-notify";
+const relayExtensionId = "qqqasdwx.vscode-window-flash-notify-relay";
+const relayPrimaryCommand = "windowFlashNotifyRelay.testFlash";
+const minimumRelayVersion = "0.2.17";
+const focusProtocolScheme = "windowflashnotify";
+const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
 
 let extensionId = defaultExtensionId;
+let extensionVersion = "unknown";
+let extensionContext: vscode.ExtensionContext | undefined;
+let relayPromptInProgress = false;
+let relayPromptShownThisSession = false;
+let focusProtocolRegistration: Promise<boolean> | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  extensionContext = context;
   extensionId = context.extension.id || defaultExtensionId;
+  extensionVersion = getExtensionVersion(context);
   output.appendLine("Activating Window Flash Notify UI");
 
   context.subscriptions.push(output);
@@ -42,6 +69,16 @@ export function activate(context: vscode.ExtensionContext): void {
       handleUri: async (uri) => {
         await handleExtensionUri(uri);
       }
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.health", async () => {
+      return getUiHealthResult();
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.installRelay", async () => {
+      await promptInstallRelay(context, true);
     })
   );
   context.subscriptions.push(
@@ -73,6 +110,11 @@ export function activate(context: vscode.ExtensionContext): void {
       await diagnoseWindowsTargeting();
     })
   );
+
+  scheduleRelayInstallCheck(context);
+  if (process.platform === "win32") {
+    void ensureFocusProtocolRegistered(context);
+  }
 }
 
 export function deactivate(): void {
@@ -81,20 +123,228 @@ export function deactivate(): void {
 
 async function handleExtensionUri(uri: vscode.Uri): Promise<void> {
   output.appendLine(`URI received: ${uri.toString(true)}`);
+  if (uri.path === "/health") {
+    await postRelayAck(readRelayAckFromUri(uri), getUiHealthResult());
+    return;
+  }
+
+  if (uri.path === "/notify") {
+    try {
+      const payload = parseUriNotifyPayload(uri);
+      const result = await handleNotification(payload);
+      await postRelayAck(payload, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`URI notify failed: ${message}`);
+    }
+    return;
+  }
+
   if (uri.path !== "/focus") {
     return;
   }
 
   const params = new URLSearchParams(uri.query);
   const workspaceName = params.get("workspaceName") || undefined;
-  const workspaceHints = getWorkspaceMatchHints(
+  const workspaceHints = getWorkspaceMatchHintsFromUri(
     workspaceName,
-    undefined,
     params.getAll("workspaceHint")
   );
   const targetProcessId = parsePositiveInteger(params.get("targetPid")) || process.pid;
 
-  await runWindowsWindowAction("focus", workspaceHints, targetProcessId);
+  runWindowsWindowAction("focus", workspaceHints, targetProcessId);
+}
+
+function parseUriNotifyPayload(uri: vscode.Uri): NotifyPayload {
+  const params = new URLSearchParams(uri.query);
+  const encodedPayload = params.get("payload");
+  if (!encodedPayload) {
+    return {};
+  }
+
+  const parsed = JSON.parse(Buffer.from(encodedPayload, "base64").toString("utf8")) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("URI notify payload must be an object");
+  }
+
+  return normalizeNotifyPayload(parsed as Record<string, unknown>);
+}
+
+function normalizeNotifyPayload(record: Record<string, unknown>): NotifyPayload {
+  const payload: NotifyPayload = {};
+
+  payload.title = readOptionalString(record, "title");
+  payload.message = readOptionalString(record, "message");
+  payload.type = readOptionalNotifyType(record.type);
+  payload.action = readOptionalNotifyAction(record.action);
+  payload.workspaceName = readOptionalString(record, "workspaceName");
+  payload.workspacePath = readOptionalString(record, "workspacePath");
+  payload.showInternalNotification = readOptionalBoolean(record, "showInternalNotification");
+  payload.sound = readOptionalBoolean(record, "sound");
+  payload.showToast = readOptionalBoolean(record, "showToast");
+  payload.toastTimeout = readOptionalNumber(record, "toastTimeout");
+  payload.relayRequestId = readOptionalString(record, "relayRequestId");
+  payload.relayCallbackUri = readOptionalString(record, "relayCallbackUri");
+  payload.relayCallbackToken = readOptionalString(record, "relayCallbackToken");
+
+  if (record.workspaceHints !== undefined) {
+    if (
+      !Array.isArray(record.workspaceHints) ||
+      record.workspaceHints.some((hint) => typeof hint !== "string")
+    ) {
+      throw new Error("workspaceHints must be an array of strings");
+    }
+    payload.workspaceHints = record.workspaceHints;
+  }
+
+  return payload;
+}
+
+function readRelayAckFromUri(uri: vscode.Uri): Pick<NotifyPayload, "relayRequestId" | "relayCallbackUri" | "relayCallbackToken"> {
+  const params = new URLSearchParams(uri.query);
+  return {
+    relayRequestId: params.get("relayRequestId") || undefined,
+    relayCallbackUri: params.get("relayCallbackUri") || undefined,
+    relayCallbackToken: params.get("relayCallbackToken") || undefined
+  };
+}
+
+function getUiHealthResult(): UiHealthResult {
+  return {
+    ok: true,
+    role: "ui",
+    id: extensionId,
+    version: extensionVersion,
+    platform: process.platform,
+    implementation
+  };
+}
+
+async function postRelayAck(
+  payload: Pick<NotifyPayload, "relayRequestId" | "relayCallbackUri" | "relayCallbackToken">,
+  result: unknown
+): Promise<void> {
+  if (!payload.relayRequestId || !payload.relayCallbackUri || !payload.relayCallbackToken) {
+    return;
+  }
+
+  try {
+    const response = await fetch(payload.relayCallbackUri, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        requestId: payload.relayRequestId,
+        token: payload.relayCallbackToken,
+        result
+      })
+    });
+
+    if (!response.ok) {
+      output.appendLine(`Relay ack failed: HTTP ${response.status}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Relay ack failed: ${message}`);
+  }
+}
+
+function scheduleRelayInstallCheck(context: vscode.ExtensionContext): void {
+  if (!vscode.env.remoteName || !getConfig().get<boolean>("autoInstallRelay", true)) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    void promptInstallRelay(context, false);
+  }, 2000);
+
+  context.subscriptions.push({
+    dispose: () => clearTimeout(timer)
+  });
+}
+
+async function promptInstallRelay(context: vscode.ExtensionContext, forced: boolean): Promise<void> {
+  if (!vscode.env.remoteName || relayPromptInProgress) {
+    return;
+  }
+
+  relayPromptInProgress = true;
+  try {
+    const state = await getRelayInstallState();
+    if (state.ok) {
+      if (forced) {
+        vscode.window.showInformationMessage("Window Flash Notify Relay is already installed in this remote window.");
+      }
+      return;
+    }
+    if (relayPromptShownThisSession && !forced) {
+      return;
+    }
+    relayPromptShownThisSession = true;
+
+    const installLabel = state.installed ? "Update Relay" : "Install Relay";
+    const message = state.installed
+      ? `Window Flash Notify Relay ${state.version || ""} is older than ${minimumRelayVersion}. Update it in this remote window.`
+      : "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications.";
+
+    const choice = await vscode.window.showWarningMessage(message, installLabel, "Later");
+    if (choice !== installLabel) {
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `${installLabel}: Window Flash Notify Relay`,
+        cancellable: false
+      },
+      async () => {
+        await vscode.commands.executeCommand("workbench.extensions.installExtension", relayExtensionId);
+      }
+    );
+
+    await context.workspaceState.update("windowFlashNotify.lastRelayInstallAttempt", Date.now());
+    const reloadChoice = await vscode.window.showInformationMessage(
+      "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it.",
+      "Reload Window",
+      "Later"
+    );
+    if (reloadChoice === "Reload Window") {
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Relay install failed: ${message}`);
+    vscode.window.showErrorMessage(`Failed to install Window Flash Notify Relay: ${message}`);
+  } finally {
+    relayPromptInProgress = false;
+  }
+}
+
+async function getRelayInstallState(): Promise<{ ok: boolean; installed: boolean; version?: string }> {
+  const extension = vscode.extensions.getExtension(relayExtensionId);
+  if (extension) {
+    const version = getPackageVersionFromPath(extension.extensionUri.fsPath) ?? getPackageJsonVersion(extension.packageJSON);
+    return {
+      ok: version !== "unknown" && compareVersions(version, minimumRelayVersion) >= 0,
+      installed: true,
+      version
+    };
+  }
+
+  const commands = await vscode.commands.getCommands(true);
+  if (commands.includes(relayPrimaryCommand)) {
+    return {
+      ok: true,
+      installed: true
+    };
+  }
+
+  return {
+    ok: false,
+    installed: false
+  };
 }
 
 async function handleNotification(payload: NotifyPayload): Promise<NotifyResult> {
@@ -113,24 +363,17 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
   );
 
   if (action === "flash") {
-    await runWindowsWindowAction("flash", workspaceHints);
+    runWindowsWindowAction("flash", workspaceHints);
   } else if (action === "focus") {
-    await runWindowsWindowAction("focus", workspaceHints);
+    runWindowsWindowAction("focus", workspaceHints);
   }
 
   if (payload.sound ?? getConfig().get<boolean>("soundEnabled", false)) {
-    await playNotificationSound(type);
+    playNotificationSound(type);
   }
 
   if (payload.showToast ?? getConfig().get<boolean>("showToast", false)) {
     await showToastNotification(payload, workspaceName, workspaceHints);
-  }
-
-  const showInternal =
-    payload.showInternalNotification ?? getConfig().get<boolean>("showInternalNotification", false);
-
-  if (showInternal) {
-    await showInternalNotification(type, `[${workspaceName}] ${message}`, workspaceHints);
   }
 
   return {
@@ -138,49 +381,21 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
     action,
     workspaceName,
     workspaceHints,
-    platform: process.platform
+    platform: process.platform,
+    implementation
   };
 }
 
-async function showInternalNotification(
-  type: NotifyType,
-  message: string,
-  workspaceHints: string[]
-): Promise<void> {
-  const focus = "Focus";
-  const flashAgain = "Flash Again";
-  let selected: string | undefined;
-
-  if (type === "error") {
-    selected = await vscode.window.showErrorMessage(message, focus, flashAgain);
-  } else if (type === "warning") {
-    selected = await vscode.window.showWarningMessage(message, focus, flashAgain);
-  } else {
-    selected = await vscode.window.showInformationMessage(message, focus, flashAgain);
-  }
-
-  if (selected === focus) {
-    await runWindowsWindowAction("focus", workspaceHints);
-  } else if (selected === flashAgain) {
-    await runWindowsWindowAction("flash", workspaceHints);
-  }
-}
-
-async function playNotificationSound(type: NotifyType): Promise<void> {
+function playNotificationSound(type: NotifyType): void {
   if (process.platform !== "win32") {
     output.appendLine(`Skipping sound; platform is ${process.platform}`);
     return;
   }
 
-  try {
-    await runPowerShell(getSoundPowerShell(), {
-      ...process.env,
-      WINDOW_FLASH_NOTIFY_TYPE: type
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    output.appendLine(`Sound failed: ${message}`);
-  }
+  schedulePowerShellDetached("sound", getSoundPowerShell(), {
+    ...process.env,
+    WINDOW_FLASH_NOTIFY_TYPE: type
+  });
 }
 
 async function showToastNotification(
@@ -197,13 +412,13 @@ async function showToastNotification(
   const title = payload.title || `${workspaceName} - Window Flash Notify`;
   const toastTimeout = clampNumber(
     payload.toastTimeout ?? getConfig().get<number>("toastTimeout", 15),
-    1,
+    0,
     300
   );
-  const focusUri = buildFocusUri(workspaceName, workspaceHints, process.pid);
+  const focusUri = await buildToastFocusUri(workspaceName, workspaceHints, process.pid);
 
   output.appendLine(`Showing toast: ${title} - ${message}`);
-  spawnPowerShellDetached(getToastPowerShell(), {
+  schedulePowerShellDetached("toast", getToastPowerShell(), {
     ...process.env,
     WINDOW_FLASH_NOTIFY_TOAST_TITLE: title,
     WINDOW_FLASH_NOTIFY_TOAST_MESSAGE: message,
@@ -211,6 +426,33 @@ async function showToastNotification(
     WINDOW_FLASH_NOTIFY_TOAST_FOCUS_URI: focusUri,
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName || "Visual Studio Code"
   });
+}
+
+async function buildToastFocusUri(
+  workspaceName: string,
+  workspaceHints: string[],
+  targetProcessId: number
+): Promise<string> {
+  if (extensionContext && await ensureFocusProtocolRegistered(extensionContext)) {
+    return buildCustomFocusUri(workspaceName, workspaceHints, targetProcessId);
+  }
+
+  return buildFocusUri(workspaceName, workspaceHints, targetProcessId);
+}
+
+function buildCustomFocusUri(
+  workspaceName: string,
+  workspaceHints: string[],
+  targetProcessId: number
+): string {
+  const params = new URLSearchParams();
+  params.set("targetPid", String(targetProcessId));
+  params.set("workspaceName", workspaceName);
+  for (const hint of workspaceHints) {
+    params.append("workspaceHint", hint);
+  }
+
+  return `${focusProtocolScheme}://focus?${params.toString()}`;
 }
 
 function buildFocusUri(
@@ -232,6 +474,45 @@ function buildFocusUri(
     query: params.toString()
   });
   return uri.toString(true);
+}
+
+async function ensureFocusProtocolRegistered(context: vscode.ExtensionContext): Promise<boolean> {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  if (!focusProtocolRegistration) {
+    focusProtocolRegistration = registerFocusProtocol(context).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`Failed to register ${focusProtocolScheme} protocol: ${message}`);
+      return false;
+    });
+  }
+
+  return focusProtocolRegistration;
+}
+
+async function registerFocusProtocol(context: vscode.ExtensionContext): Promise<boolean> {
+  const scriptPath = writeFocusProtocolScripts(context);
+  const wscriptPath = getWindowsWScriptPath();
+  const command = `"${wscriptPath}" "${scriptPath}" "%1"`;
+  const rootKey = `HKCU\\Software\\Classes\\${focusProtocolScheme}`;
+
+  await runHiddenProcess("reg.exe", ["add", rootKey, "/ve", "/d", "URL:Window Flash Notify Protocol", "/f"]);
+  await runHiddenProcess("reg.exe", ["add", rootKey, "/v", "URL Protocol", "/d", "", "/f"]);
+  await runHiddenProcess("reg.exe", ["add", `${rootKey}\\shell\\open\\command`, "/ve", "/d", command, "/f"]);
+  return true;
+}
+
+function writeFocusProtocolScripts(context: vscode.ExtensionContext): string {
+  const dir = context.globalStorageUri.fsPath;
+  mkdirSync(dir, { recursive: true });
+  const powerShellPath = getWindowsPowerShellPath();
+  const powerShellScriptPath = join(dir, "focus-protocol.ps1");
+  const vbsScriptPath = join(dir, "focus-protocol.vbs");
+  writeFileSync(powerShellScriptPath, getFocusProtocolPowerShell(), "utf8");
+  writeFileSync(vbsScriptPath, getFocusProtocolVbs(powerShellPath, powerShellScriptPath), "utf8");
+  return vbsScriptPath;
 }
 
 async function diagnoseWindowsTargeting(): Promise<void> {
@@ -257,17 +538,21 @@ async function diagnoseWindowsTargeting(): Promise<void> {
   }
 }
 
-async function runWindowsWindowAction(
+function runWindowsWindowAction(
   action: "flash" | "focus",
   workspaceHints: string[],
   targetProcessId = process.pid
-): Promise<void> {
+): void {
   if (process.platform !== "win32") {
     output.appendLine(`Skipping ${action}; platform is ${process.platform}`);
     return;
   }
 
-  await runPowerShell(getWindowActionPowerShell(), getWindowActionEnv(action, workspaceHints, targetProcessId));
+  schedulePowerShellDetached(
+    `window-${action}`,
+    getWindowActionPowerShell(),
+    getWindowActionEnv(action, workspaceHints, targetProcessId)
+  );
 }
 
 function getWindowActionEnv(
@@ -320,11 +605,30 @@ if ([string]::IsNullOrWhiteSpace($appId)) {
   $appId = 'Visual Studio Code'
 }
 
+try {
+  $startApps = @(Get-StartApps | Where-Object {
+    $_.Name -like '*Visual Studio Code*' -or
+    $_.Name -like '*VS Code*' -or
+    $_.AppID -like '*VisualStudioCode*' -or
+    $_.AppID -like '*Code*'
+  } | Select-Object -First 10 Name, AppID)
+  if ($startApps.Count -gt 0) {
+    $preferredStartApp = @($startApps | Where-Object { $_.AppID -like '*VisualStudioCode*' } | Select-Object -First 1)
+    if ($preferredStartApp.Count -eq 0) {
+      $preferredStartApp = @($startApps | Select-Object -First 1)
+    }
+    if ($preferredStartApp.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$preferredStartApp[0].AppID)) {
+      $appId = [string]$preferredStartApp[0].AppID
+    }
+  }
+} catch {
+}
+
 $timeoutSeconds = 15
 if ($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT) {
   [void][int]::TryParse($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT, [ref]$timeoutSeconds)
 }
-$timeoutSeconds = [Math]::Max(1, [Math]::Min(300, $timeoutSeconds))
+$timeoutSeconds = [Math]::Max(0, [Math]::Min(300, $timeoutSeconds))
 
 function Escape-Xml([string]$value) {
   return [System.Security.SecurityElement]::Escape($value)
@@ -354,9 +658,106 @@ $xmlText = @"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$toast.ExpirationTime = [System.DateTimeOffset]::Now.AddSeconds($timeoutSeconds)
+if ($timeoutSeconds -gt 0) {
+  $toast.ExpirationTime = [System.DateTimeOffset]::Now.AddSeconds($timeoutSeconds)
+}
 $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
 $notifier.Show($toast)
+`;
+}
+
+function getFocusProtocolPowerShell(): string {
+  return `
+param([string]$windowFlashNotifyUri)
+$ErrorActionPreference = 'Stop'
+
+function ConvertFrom-WindowFlashNotifyQueryValue([string]$value) {
+  if ($null -eq $value) {
+    return ''
+  }
+  return [System.Uri]::UnescapeDataString(($value -replace '\\+', ' '))
+}
+
+if ([string]::IsNullOrWhiteSpace($windowFlashNotifyUri)) {
+  exit 1
+}
+
+$parsedUri = [System.Uri]$windowFlashNotifyUri
+$workspaceName = ''
+$targetPid = '0'
+$workspaceHints = New-Object System.Collections.Generic.List[string]
+$query = $parsedUri.Query
+if (-not [string]::IsNullOrWhiteSpace($query)) {
+  foreach ($part in ($query.TrimStart('?') -split '&')) {
+    if ([string]::IsNullOrWhiteSpace($part)) {
+      continue
+    }
+
+    $pair = $part -split '=', 2
+    $key = ConvertFrom-WindowFlashNotifyQueryValue $pair[0]
+    $value = ''
+    if ($pair.Count -gt 1) {
+      $value = ConvertFrom-WindowFlashNotifyQueryValue $pair[1]
+    }
+
+    if ($key -eq 'workspaceName') {
+      $workspaceName = $value
+    } elseif ($key -eq 'targetPid') {
+      $targetPid = $value
+    } elseif ($key -eq 'workspaceHint') {
+      [void]$workspaceHints.Add($value)
+    }
+  }
+}
+
+$env:WINDOW_FLASH_NOTIFY_TARGET_PID = $targetPid
+$env:WINDOW_FLASH_NOTIFY_WORKSPACE = $workspaceName
+$env:WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS = [string]::Join([string][char]10, @($workspaceHints))
+$env:WINDOW_FLASH_NOTIFY_PRODUCT = 'Visual Studio Code'
+
+${getWindowLookupPowerShell()}
+
+$selection = Select-WindowFlashFastStrongTargets
+if ($null -eq $selection) {
+  $selection = Select-WindowFlashTargets
+}
+foreach ($target in @($selection.Targets)) {
+  $hwnd = [System.IntPtr]::new([int64]$target.Hwnd)
+  $showCommand = Get-WindowFlashShowCommand $hwnd $true
+  for ($attempt = 0; $attempt -lt 8; $attempt++) {
+    if (Invoke-WindowFlashFocus $hwnd $showCommand) {
+      break
+    }
+    Start-Sleep -Milliseconds 100
+  }
+}
+`;
+}
+
+function getFocusProtocolVbs(powerShellPath: string, powerShellScriptPath: string): string {
+  return `
+Option Explicit
+
+Dim uri
+If WScript.Arguments.Count = 0 Then
+  WScript.Quit 1
+End If
+uri = WScript.Arguments(0)
+
+Dim shell
+Set shell = CreateObject("WScript.Shell")
+
+Dim command
+command = Quote("${escapeVbsString(powerShellPath)}") _
+  & " -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File " _
+  & Quote("${escapeVbsString(powerShellScriptPath)}") _
+  & " " & Quote(uri)
+
+shell.Run command, 0, False
+
+Function Quote(value)
+  Quote = Chr(34) & Replace(value, Chr(34), Chr(34) & Chr(34)) & Chr(34)
+End Function
 `;
 }
 
@@ -400,6 +801,30 @@ public static class WindowFlashNotifyUser32 {
     public UInt32 dwTimeout;
   }
 
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT {
+    public Int32 X;
+    public Int32 Y;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public Int32 Left;
+    public Int32 Top;
+    public Int32 Right;
+    public Int32 Bottom;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct WINDOWPLACEMENT {
+    public Int32 length;
+    public Int32 flags;
+    public Int32 showCmd;
+    public POINT ptMinPosition;
+    public POINT ptMaxPosition;
+    public RECT rcNormalPosition;
+  }
+
   [DllImport("user32.dll")]
   public static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
 
@@ -408,8 +833,57 @@ public static class WindowFlashNotifyUser32 {
 
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsZoomed(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
 }
 "@
+
+function Get-WindowFlashShowCommand([IntPtr]$hwnd, [bool]$maximizeIfMinimized) {
+  $placement = New-Object WindowFlashNotifyUser32+WINDOWPLACEMENT
+  $placement.length = [System.Runtime.InteropServices.Marshal]::SizeOf($placement)
+
+  if ([WindowFlashNotifyUser32]::GetWindowPlacement($hwnd, [ref]$placement)) {
+    if ($placement.showCmd -eq 3 -or (($placement.flags -band 2) -ne 0)) {
+      return 3
+    }
+  }
+
+  if ([WindowFlashNotifyUser32]::IsZoomed($hwnd)) {
+    return 3
+  }
+
+  if ($maximizeIfMinimized -and [WindowFlashNotifyUser32]::IsIconic($hwnd)) {
+    return 3
+  }
+
+  return 9
+}
+
+function Invoke-WindowFlashFocus([IntPtr]$hwnd, [int]$showCommand) {
+  [void][WindowFlashNotifyUser32]::ShowWindowAsync($hwnd, $showCommand)
+  [void][WindowFlashNotifyUser32]::SetForegroundWindow($hwnd)
+  [WindowFlashNotifyUser32]::SwitchToThisWindow($hwnd, $true)
+
+  if ($showCommand -eq 3) {
+    [void][WindowFlashNotifyUser32]::ShowWindowAsync($hwnd, 3)
+    [void][WindowFlashNotifyUser32]::SetForegroundWindow($hwnd)
+  }
+
+  return [WindowFlashNotifyUser32]::GetForegroundWindow().Equals($hwnd)
+}
 
 $workspaceHints = New-Object System.Collections.Generic.List[string]
 function Add-WorkspaceHint([string]$hint) {
@@ -532,13 +1006,25 @@ function Get-WindowFlashChainScore([int[]]$candidateChainIds, [int[]]$targetChai
   return 0
 }
 
-function Test-WindowFlashWorkspaceTitleMatch([string]$title) {
+function Get-WindowFlashWorkspaceScore([string]$title) {
+  $bestScore = 0
+  $hintIndex = 0
   foreach ($hint in $workspaceHints) {
     if ($title.IndexOf($hint, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-      return $true
+      $score = 1000 + ($hint.Length * 10) - $hintIndex
+      if ($hint -match '\\[[^\\]]+\\]') {
+        $score = 50000 + ($hint.Length * 10) - $hintIndex
+      } elseif ($hint -match '[\\\\/:]') {
+        $score = 20000 + ($hint.Length * 10) - $hintIndex
+      }
+
+      if ($score -gt $bestScore) {
+        $bestScore = $score
+      }
     }
+    $hintIndex += 1
   }
-  return $false
+  return $bestScore
 }
 
 function Test-WindowFlashCodeTitle([string]$title) {
@@ -590,7 +1076,8 @@ function Get-WindowFlashCodeWindows {
 
     $chain = @(Get-WindowFlashProcessChain ([int]$windowProcessId))
     $chainIds = @($chain | ForEach-Object { [int]$_.ProcessId })
-    $workspaceMatch = Test-WindowFlashWorkspaceTitleMatch $title
+    $workspaceMatchScore = Get-WindowFlashWorkspaceScore $title
+    $workspaceMatch = $workspaceMatchScore -gt 0
     $score = Get-WindowFlashChainScore -candidateChainIds $chainIds -targetChainIds $targetChainIds
 
     [void]$windows.Add([pscustomobject]@{
@@ -600,6 +1087,7 @@ function Get-WindowFlashCodeWindows {
       ProcessName = $processName
       ProcessMatchScore = $score
       WorkspaceMatch = $workspaceMatch
+      WorkspaceMatchScore = $workspaceMatchScore
       Chain = @($chain)
     })
 
@@ -610,10 +1098,112 @@ function Get-WindowFlashCodeWindows {
   return $windows.ToArray()
 }
 
+function Get-WindowFlashBasicCodeWindows {
+  $windows = New-Object System.Collections.Generic.List[object]
+
+  $callback = [WindowFlashNotifyUser32+EnumWindowsProc]{
+    param([IntPtr]$hWnd, [IntPtr]$lParam)
+
+    if (-not [WindowFlashNotifyUser32]::IsWindowVisible($hWnd)) {
+      return $true
+    }
+
+    $builder = New-Object System.Text.StringBuilder 1024
+    [void][WindowFlashNotifyUser32]::GetWindowText($hWnd, $builder, $builder.Capacity)
+    $title = $builder.ToString()
+    if ([string]::IsNullOrWhiteSpace($title) -or -not (Test-WindowFlashCodeTitle $title)) {
+      return $true
+    }
+
+    [uint32]$windowProcessId = 0
+    [void][WindowFlashNotifyUser32]::GetWindowThreadProcessId($hWnd, [ref]$windowProcessId)
+
+    $processName = ''
+    try {
+      $processName = [string](Get-Process -Id ([int]$windowProcessId) -ErrorAction Stop).ProcessName
+    } catch {
+      return $true
+    }
+
+    if ($processName -notlike 'Code*' -and $processName -notlike 'VSCodium*') {
+      return $true
+    }
+
+    $workspaceMatchScore = Get-WindowFlashWorkspaceScore $title
+    [void]$windows.Add([pscustomobject]@{
+      Hwnd = $hWnd.ToInt64()
+      Title = $title
+      ProcessId = [int]$windowProcessId
+      ProcessName = $processName
+      WorkspaceMatchScore = $workspaceMatchScore
+    })
+
+    return $true
+  }
+
+  [void][WindowFlashNotifyUser32]::EnumWindows($callback, [IntPtr]::Zero)
+  return $windows.ToArray()
+}
+
+function Select-WindowFlashFastStrongTargets {
+  if ($workspaceHints.Count -eq 0) {
+    return $null
+  }
+
+  $windows = @(Get-WindowFlashBasicCodeWindows)
+  $strongHintMatches = @($windows | Where-Object { [int]$_.WorkspaceMatchScore -ge 50000 } | Sort-Object -Property WorkspaceMatchScore -Descending)
+  if ($strongHintMatches.Count -eq 0) {
+    return $null
+  }
+
+  $bestHintScore = [int]$strongHintMatches[0].WorkspaceMatchScore
+  $bestHintMatches = @($strongHintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
+  if ($bestHintMatches.Count -ne 1) {
+    return $null
+  }
+
+  return [pscustomobject]@{
+    Source = 'fastStrongWorkspaceHint'
+    Targets = @($bestHintMatches)
+    Windows = @($windows)
+    Reason = "Unique strong workspace hint match with score $bestHintScore."
+  }
+}
+
 function Select-WindowFlashTargets {
   $windows = @(Get-WindowFlashCodeWindows)
   if ($windows.Count -eq 0) {
     throw "No visible VS Code window was found"
+  }
+
+  if ($workspaceHints.Count -gt 0) {
+    $strongHintMatches = @($windows | Where-Object { [int]$_.WorkspaceMatchScore -ge 50000 } | Sort-Object -Property WorkspaceMatchScore, ProcessMatchScore -Descending)
+    if ($strongHintMatches.Count -gt 0) {
+      $bestHintScore = [int]$strongHintMatches[0].WorkspaceMatchScore
+      $bestHintMatches = @($strongHintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
+      if ($bestHintMatches.Count -eq 1) {
+        return [pscustomobject]@{
+          Source = 'strongWorkspaceHint'
+          Targets = @($bestHintMatches)
+          Windows = @($windows)
+          Reason = "Unique strong workspace hint match with score $bestHintScore."
+        }
+      }
+
+      $processTieBreaks = @($bestHintMatches | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
+      if ($processTieBreaks.Count -gt 0) {
+        $bestProcessScore = [int]$processTieBreaks[0].ProcessMatchScore
+        $bestProcessMatches = @($processTieBreaks | Where-Object { [int]$_.ProcessMatchScore -eq $bestProcessScore })
+        if ($bestProcessMatches.Count -eq 1) {
+          return [pscustomobject]@{
+            Source = 'strongWorkspaceHintProcessTieBreak'
+            Targets = @($bestProcessMatches)
+            Windows = @($windows)
+            Reason = "Strong workspace hint match was tied at score $bestHintScore; process-chain tie-break selected score $bestProcessScore."
+          }
+        }
+      }
+    }
   }
 
   $processMatches = @($windows | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
@@ -631,13 +1221,31 @@ function Select-WindowFlashTargets {
   }
 
   if ($workspaceHints.Count -gt 0) {
-    $hintMatches = @($windows | Where-Object { $_.WorkspaceMatch })
+    $hintMatches = @($windows | Where-Object { $_.WorkspaceMatch } | Sort-Object -Property WorkspaceMatchScore, ProcessMatchScore -Descending)
     if ($hintMatches.Count -gt 0) {
-      return [pscustomobject]@{
-        Source = 'workspaceHintsFallback'
-        Targets = @($hintMatches)
-        Windows = @($windows)
-        Reason = 'Process-chain match was unavailable or ambiguous; workspace hints matched.'
+      $bestHintScore = [int]$hintMatches[0].WorkspaceMatchScore
+      $bestHintMatches = @($hintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
+      if ($bestHintMatches.Count -eq 1) {
+        return [pscustomobject]@{
+          Source = 'workspaceHintsFallback'
+          Targets = @($bestHintMatches)
+          Windows = @($windows)
+          Reason = "Process-chain match was unavailable or ambiguous; unique workspace hint score $bestHintScore matched."
+        }
+      }
+
+      $processTieBreaks = @($bestHintMatches | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
+      if ($processTieBreaks.Count -gt 0) {
+        $bestProcessScore = [int]$processTieBreaks[0].ProcessMatchScore
+        $bestProcessMatches = @($processTieBreaks | Where-Object { [int]$_.ProcessMatchScore -eq $bestProcessScore })
+        if ($bestProcessMatches.Count -eq 1) {
+          return [pscustomobject]@{
+            Source = 'workspaceHintsProcessTieBreak'
+            Targets = @($bestProcessMatches)
+            Windows = @($windows)
+            Reason = "Workspace hint match was tied at score $bestHintScore; process-chain tie-break selected score $bestProcessScore."
+          }
+        }
       }
     }
   }
@@ -680,8 +1288,13 @@ $targets = @($selection.Targets)
 foreach ($target in $targets) {
   $hwnd = [System.IntPtr]::new([int64]$target.Hwnd)
   if ($action -eq 'focus') {
-    [void][WindowFlashNotifyUser32]::ShowWindowAsync($hwnd, 9)
-    [void][WindowFlashNotifyUser32]::SetForegroundWindow($hwnd)
+    $showCommand = Get-WindowFlashShowCommand $hwnd $false
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+      if (Invoke-WindowFlashFocus $hwnd $showCommand) {
+        break
+      }
+      Start-Sleep -Milliseconds 120
+    }
   } elseif ($action -eq 'flash') {
     $info = New-Object WindowFlashNotifyUser32+FLASHWINFO
     $info.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($info)
@@ -726,6 +1339,7 @@ if ($null -ne $selection) {
         ProcessName = $_.ProcessName
         ProcessMatchScore = $_.ProcessMatchScore
         WorkspaceMatch = $_.WorkspaceMatch
+        WorkspaceMatchScore = $_.WorkspaceMatchScore
       }
     })
   }
@@ -746,6 +1360,42 @@ $result | ConvertTo-Json -Depth 8
 
 async function runPowerShell(script: string, env: NodeJS.ProcessEnv, timeoutMs = 5000): Promise<void> {
   await runPowerShellWithOutput(script, env, timeoutMs);
+}
+
+function runHiddenProcess(command: string, args: string[], timeoutMs = 5000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      windowsHide: true,
+      stdio: "ignore"
+    });
+
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    };
+    const timeout = setTimeout(() => {
+      child.kill();
+      finish(() => reject(new Error(`${command} timed out`)));
+    }, timeoutMs);
+
+    child.once("error", (error) => {
+      finish(() => reject(error));
+    });
+    child.once("exit", (code) => {
+      finish(() => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`${command} exited with code ${String(code)}`));
+        }
+      });
+    });
+  });
 }
 
 async function runPowerShellCapture(
@@ -788,6 +1438,7 @@ function runPowerShellWithOutput(
       callback();
     };
     const timeout = setTimeout(() => {
+      killPowerShellProcessTree(child.pid);
       child.kill();
       finish(() => reject(new Error("PowerShell window action timed out")));
     }, timeoutMs);
@@ -815,27 +1466,116 @@ function runPowerShellWithOutput(
   });
 }
 
-function spawnPowerShellDetached(script: string, env: NodeJS.ProcessEnv): void {
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const child = spawn("powershell.exe", [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-EncodedCommand",
-    encoded
-  ], {
-    env,
+function killPowerShellProcessTree(pid: number | undefined): void {
+  if (!pid || process.platform !== "win32") {
+    return;
+  }
+
+  const killer = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
     windowsHide: true,
-    detached: true,
     stdio: "ignore"
   });
+  killer.unref();
+}
+
+function schedulePowerShellDetached(name: string, script: string, env: NodeJS.ProcessEnv): void {
+  setTimeout(() => {
+    try {
+      spawnPowerShellDetached(name, script, env);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`Failed to launch ${name}: ${message}`);
+    }
+  }, 50);
+}
+
+function spawnPowerShellDetached(name: string, script: string, env: NodeJS.ProcessEnv): void {
+  const scriptPath = writeDetachedPowerShellScript(name, script);
+  const powerShellPath = getWindowsPowerShellPath();
+  const child = spawn(powerShellPath, [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-WindowStyle",
+    "Hidden",
+    "-Command",
+    getDetachedPowerShellBootstrap()
+  ], {
+    env: {
+      ...env,
+      WINDOW_FLASH_NOTIFY_SCRIPT_PATH: scriptPath
+    },
+    windowsHide: true,
+    stdio: "ignore"
+  });
+  const killTimer = setTimeout(() => {
+    killPowerShellProcessTree(child.pid);
+    child.kill();
+  }, 10000);
+  child.once("error", (error) => {
+    clearTimeout(killTimer);
+    output.appendLine(`Detached PowerShell ${name} failed: ${error.message}`);
+  });
+  child.once("exit", () => {
+    clearTimeout(killTimer);
+  });
   child.unref();
+}
+
+function getWindowsPowerShellPath(): string {
+  const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+  return join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+
+function getWindowsWScriptPath(): string {
+  const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+  return join(systemRoot, "System32", "wscript.exe");
+}
+
+function writeDetachedPowerShellScript(name: string, script: string): string {
+  const dir = join(tmpdir(), "vscode-window-flash-notify");
+  mkdirSync(dir, { recursive: true });
+  const safeName = name.replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
+  const scriptPath = join(dir, `${safeName}.ps1`);
+  writeFileSync(scriptPath, script, "utf8");
+  return scriptPath;
+}
+
+function getDetachedPowerShellBootstrap(): string {
+  return `
+$ErrorActionPreference = 'Stop'
+$windowFlashNotifyScriptPath = $env:WINDOW_FLASH_NOTIFY_SCRIPT_PATH
+if ([string]::IsNullOrWhiteSpace($windowFlashNotifyScriptPath)) {
+  throw 'WINDOW_FLASH_NOTIFY_SCRIPT_PATH is empty'
+}
+if (-not (Test-Path -LiteralPath $windowFlashNotifyScriptPath)) {
+  throw "Script file does not exist: $windowFlashNotifyScriptPath"
+}
+& $windowFlashNotifyScriptPath
+`;
 }
 
 function getWorkspaceMatchHints(
   workspaceName?: string,
   workspacePath?: string,
   providedHints: string[] = []
+): string[] {
+  return buildWorkspaceMatchHints(workspaceName, workspacePath, providedHints, true);
+}
+
+function getWorkspaceMatchHintsFromUri(
+  workspaceName?: string,
+  providedHints: string[] = []
+): string[] {
+  return buildWorkspaceMatchHints(workspaceName, undefined, providedHints, false);
+}
+
+function buildWorkspaceMatchHints(
+  workspaceName: string | undefined,
+  workspacePath: string | undefined,
+  providedHints: string[],
+  includeCurrentWorkspace: boolean
 ): string[] {
   const hints: string[] = [];
   const addHint = (value: string | undefined): void => {
@@ -860,16 +1600,19 @@ function getWorkspaceMatchHints(
   }
 
   addNameVariants(workspaceName);
-  addNameVariants(getWorkspaceName());
   addHint(workspacePath);
   addHint(basenameFromAnyPath(workspacePath));
 
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    addNameVariants(folder.name);
-    addHint(folder.uri.fsPath);
-    addHint(folder.uri.path);
-    addHint(basenameFromAnyPath(folder.uri.fsPath));
-    addHint(basenameFromAnyPath(folder.uri.path));
+  if (includeCurrentWorkspace) {
+    addNameVariants(getWorkspaceName());
+
+    for (const folder of vscode.workspace.workspaceFolders || []) {
+      addNameVariants(folder.name);
+      addHint(folder.uri.fsPath);
+      addHint(folder.uri.path);
+      addHint(basenameFromAnyPath(folder.uri.fsPath));
+      addHint(basenameFromAnyPath(folder.uri.path));
+    }
   }
 
   return hints;
@@ -904,6 +1647,120 @@ function getWorkspaceName(): string {
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("windowFlashNotify");
+}
+
+function getExtensionVersion(context: vscode.ExtensionContext): string {
+  return getPackageVersionFromPath(context.extensionUri.fsPath) ?? getPackageJsonVersion(context.extension.packageJSON);
+}
+
+function getPackageVersionFromPath(extensionPath: string | undefined): string | undefined {
+  if (!extensionPath) {
+    return undefined;
+  }
+
+  try {
+    const packageJson = JSON.parse(readFileSync(join(extensionPath, "package.json"), "utf8")) as unknown;
+    const version = getPackageJsonVersion(packageJson);
+    return version === "unknown" ? undefined : version;
+  } catch {
+    return undefined;
+  }
+}
+
+function getPackageJsonVersion(packageJson: unknown): string {
+  if (
+    packageJson &&
+    typeof packageJson === "object" &&
+    "version" in packageJson &&
+    typeof packageJson.version === "string"
+  ) {
+    return packageJson.version;
+  }
+
+  return "unknown";
+}
+
+function escapeVbsString(value: string): string {
+  return value.replace(/"/g, "\"\"");
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = parseVersion(left);
+  const rightParts = parseVersion(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] ?? 0;
+    const rightPart = rightParts[index] ?? 0;
+    if (leftPart > rightPart) {
+      return 1;
+    }
+    if (leftPart < rightPart) {
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+function parseVersion(version: string): number[] {
+  return version
+    .split(/[.-]/)
+    .map((part) => Number.parseInt(part, 10))
+    .filter((part) => Number.isFinite(part));
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${key} must be a string`);
+  }
+  return value;
+}
+
+function readOptionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${key} must be a boolean`);
+  }
+  return value;
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${key} must be a finite number`);
+  }
+  return value;
+}
+
+function readOptionalNotifyType(value: unknown): NotifyType | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "info" || value === "warning" || value === "error") {
+    return value;
+  }
+  throw new Error(`Invalid notification type: ${String(value)}`);
+}
+
+function readOptionalNotifyAction(value: unknown): NotifyAction | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "flash" || value === "focus" || value === "none") {
+    return value;
+  }
+  throw new Error(`Invalid action: ${String(value)}`);
 }
 
 function clampNumber(value: number, min: number, max: number): number {

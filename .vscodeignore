@@ -3,6 +3,7 @@
 .vscode/**
 .vscode-test/**
 .gitignore
+AGENTS.md
 node_modules/**
 src/**
 relay/**

@@ -2,66 +2,53 @@
 
 中文 | [English](README.en.md)
 
-Window Flash Notify 让脚本、终端任务、远端构建、测试流程在结束时提醒你：让对应的 Windows VS Code 窗口在任务栏闪烁，但不自动抢焦点。
+Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结束时提醒你：它会闪烁匹配的 Windows VS Code 任务栏按钮，默认不抢占当前焦点。
 
-它适合这些场景：
+适用场景：
 
-- Remote SSH、WSL、Dev Container、Vagrant 中的长任务完成提醒
-- 本地或远端 shell hook
-- 构建、测试、部署脚本结束后提醒
-- 多个 VS Code 窗口同时打开时，只提醒匹配的窗口
+- Remote SSH、WSL、Dev Containers、Vagrant 等远端工作区中的长任务提醒
+- 本地或远端 shell hook、构建脚本、测试脚本
+- 多个 VS Code 窗口同时打开时，只提醒任务所在窗口
+- 需要可选声音提示或 Windows toast 通知的自动化流程
 
-## 工作方式
+## 功能特性
 
-项目包含两个 VS Code 扩展：
-
-- `qqqasdwx.vscode-window-flash-notify`：UI 端扩展，运行在本地 VS Code UI host。它负责调用 Windows `FlashWindowEx`，让匹配的 VS Code 窗口闪烁。
-- `qqqasdwx.vscode-window-flash-notify-relay`：workspace 端扩展，运行在当前 workspace 所在机器。它监听 `127.0.0.1`，接收本机脚本发来的 HTTP 请求，再通过 VS Code 命令转发给 UI 端扩展。
-
-拆成两个扩展是为了适配 VS Code Remote 的 extension host 模型：远端 workspace 扩展能监听远端 localhost，本地 UI 扩展能调用 Windows 桌面 API。
-
-## 注意事项
-
-- UI 端闪烁功能依赖 Windows 任务栏 API。非 Windows 本地桌面可以正常使用 relay endpoint，但 `flash` 不会产生窗口闪烁。
-- `WINDOW_FLASH_NOTIFY_ENDPOINT` 只会注入到 VS Code 集成终端。已有终端如果没有该变量，请新开终端。
-- Windows 窗口定位会优先使用当前 UI extension host 到 VS Code 窗口进程的进程链匹配；如果进程链无法唯一定位，才会回退到 workspace hints。
-- 回退匹配仍然是保守的。如果没有任何可见 VS Code 窗口标题匹配 workspace hints，UI 端不会退回到“闪烁所有 VS Code 窗口”。需要排查时可运行命令 `Window Flash Notify: 诊断 Windows 窗口定位`。
-- `focus` 会主动把匹配窗口拉到前台；默认推荐使用 `flash`，避免打断当前焦点。
-- Toast 点击通过 VS Code URI 回到扩展，再尝试聚焦原始 VS Code 窗口。VS Code URI 可能先进入当前最上层窗口，因此扩展会在 URI 中带上原始 extension host 进程信息用于回跳定位。
+- 闪烁匹配的 VS Code 窗口任务栏按钮，默认不打断当前工作。
+- 支持 `flash`、`focus`、`none` 三种动作。
+- 支持 Windows 系统提示音和原生 toast 通知。
+- 点击 toast 后会尝试回到发出通知的 VS Code 窗口。
+- 支持 VS Code Remote 场景，由 workspace 侧 relay 接收脚本请求，再转发到本地 UI 侧扩展。
+- relay 会向 VS Code 集成终端注入 `WINDOW_FLASH_NOTIFY_ENDPOINT`，脚本可以直接调用。
+- `/health` 接口会返回 relay 和 UI 扩展版本，便于诊断安装状态。
 
 ## 安装
 
-推荐先安装 UI 端扩展。UI 端扩展 manifest 已声明 relay 为 extension pack 成员，正常从 Marketplace 安装时会一并安装 relay：
+本项目包含两个扩展：
 
-```text
-qqqasdwx.vscode-window-flash-notify
-qqqasdwx.vscode-window-flash-notify-relay
-```
+- `qqqasdwx.vscode-window-flash-notify`：UI 端扩展，安装在本地 VS Code。
+- `qqqasdwx.vscode-window-flash-notify-relay`：workspace 端 relay，安装在脚本实际运行的本地或远端工作区。
 
-在 Remote SSH、WSL、Dev Container、Vagrant 场景中：
+推荐先安装 UI 端扩展。UI 端扩展包含 relay 的 extension pack 声明；在远端窗口中，如果 relay 未安装或版本过旧，UI 端扩展会提示安装或更新。安装或更新 relay 后，需要 Reload Window 才能让 relay 激活并注入终端环境变量。
 
-- UI 端扩展安装在本地 VS Code。
-- Relay 扩展安装在远端/workspace 侧。
+纯本地使用时，两个扩展都可以安装在本地。Remote SSH、WSL、Dev Containers、Vagrant 等场景中，UI 端扩展在本地运行，relay 在远端/workspace 侧运行。
 
-纯本地场景也可以两个都装在本地。
+## 快速开始
 
-## 快速测试
-
-Relay 启动后会向 VS Code 集成终端注入环境变量：
+relay 启动后会向 VS Code 集成终端注入环境变量：
 
 ```bash
 WINDOW_FLASH_NOTIFY_ENDPOINT=http://127.0.0.1:7531/notify
 ```
 
-如果当前终端里没有这个变量，请新开一个 VS Code 终端。
+如果当前终端没有该变量，请打开一个新的 VS Code 集成终端。端口被占用时 relay 会尝试后续端口，因此脚本应优先使用环境变量，而不是固定写死 `7531`。
 
-最小调用只需要发送一个空的 `POST` 请求：
+发送一个空的 `POST` 请求即可触发默认闪烁：
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 ```
 
-如果想自定义日志文本，可以发送 JSON 请求体：
+发送 JSON 请求体可以自定义提示内容和行为：
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
@@ -69,15 +56,16 @@ curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}
   --data '{"message":"Task finished","type":"info","action":"flash"}'
 ```
 
-健康检查：
+查看 relay、UI 扩展版本和当前 endpoint：
 
 ```bash
-curl -fsS http://127.0.0.1:7531/health
+endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
+curl -fsS "${endpoint%/notify}/health"
 ```
 
-## 通用 Hook 示例
+## 脚本示例
 
-下面的示例可以放进任意 shell hook、构建脚本或测试脚本的结束阶段：
+下面的示例适合放在构建、测试或部署脚本的结束阶段：
 
 ```bash
 #!/usr/bin/env bash
@@ -89,79 +77,109 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\"}" \
+  --data "{\"message\":\"Finished: ${project}\",\"action\":\"flash\"}" \
   >/dev/null || true
 ```
 
-## 请求体
+带声音和 Windows toast 的示例：
 
-请求体可以省略。省略时等价于 `{}`，默认会执行 `flash`。
-
-可选 JSON 示例：
-
-```json
-{
-  "message": "Task finished"
-}
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
+  -H 'Content-Type: application/json' \
+  --data '{"message":"Build finished","type":"info","action":"flash","sound":true,"showToast":true,"toastTimeout":0}'
 ```
 
-字段：
+`toastTimeout: 0` 表示不设置 toast 过期时间，由 Windows 使用默认行为。
 
-| 字段 | 必填 | 默认值 | 说明 |
+## 请求接口
+
+`POST /notify` 的请求体可以省略。省略时等价于 `{}`，默认执行 `flash`。
+
+| 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `title` | 否 | `"<workspace> - Window Flash Notify"` | Toast 通知标题。 |
-| `message` | 否 | `"Notification received"` | 日志文本，也可用于 VS Code 内部通知。 |
-| `type` | 否 | `"info"` | 消息级别。见下方 `type` 枚举。 |
-| `action` | 否 | `"flash"` | 收到请求后的动作。见下方 `action` 枚举。 |
-| `workspaceName` | 否 | 当前 VS Code workspace 名称 | 窗口标题匹配提示。通常不需要调用方传入，relay 会自动补齐。 |
-| `workspacePath` | 否 | 当前 workspace 第一个 folder 路径 | workspace 路径匹配提示，basename 也会用于匹配窗口标题。通常不需要调用方传入。 |
-| `workspaceHints` | 否 | 自动根据当前 workspace 生成 | 额外窗口标题匹配字符串数组。只有需要覆盖默认匹配行为时才传。 |
-| `showInternalNotification` | 否 | UI 端设置 `windowFlashNotify.showInternalNotification` | 是否同时显示 VS Code 内部通知。 |
-| `sound` | 否 | UI 端设置 `windowFlashNotify.soundEnabled` | 是否播放 Windows 系统提示音。 |
-| `showToast` | 否 | UI 端设置 `windowFlashNotify.showToast` | 是否显示 Windows toast 通知。 |
-| `toastTimeout` | 否 | UI 端设置 `windowFlashNotify.toastTimeout` | Toast 通知过期时间，单位为秒。 |
+| `title` | `string` | `"<workspace> - Window Flash Notify"` | Windows toast 标题。 |
+| `message` | `string` | `"Notification received"` | 通知正文。 |
+| `type` | `"info" \| "warning" \| "error"` | `"info"` | 消息级别。声音开启时会选择对应的 Windows 系统提示音。 |
+| `action` | `"flash" \| "focus" \| "none"` | `"flash"` | 收到请求后的窗口动作。 |
+| `workspaceName` | `string` | 当前 VS Code workspace 名称 | 窗口匹配提示。通常不需要手动传入，relay 会自动补齐。 |
+| `workspacePath` | `string` | 当前 workspace 第一个 folder 路径 | 窗口匹配提示。通常不需要手动传入，relay 会自动补齐。 |
+| `workspaceHints` | `string[]` | 根据当前 workspace 自动生成 | 额外窗口匹配提示。仅在需要覆盖默认匹配行为时使用。 |
+| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | 是否播放 Windows 系统提示音。 |
+| `showToast` | `boolean` | `windowFlashNotify.showToast` | 是否显示 Windows toast 通知。 |
+| `toastTimeout` | `number` | `windowFlashNotify.toastTimeout` | Toast 过期时间，单位为秒。设为 `0` 表示不设置过期时间。 |
 
-`type` 枚举：
+`action` 可选值：
 
-| 值 | 含义 |
+| 值 | 行为 |
 | --- | --- |
-| `info` | 普通信息。用于成功、完成、一般提醒。 |
-| `warning` | 警告信息。用于需要注意但不一定失败的情况。 |
-| `error` | 错误信息。用于失败或需要立即处理的情况。 |
+| `flash` | 闪烁匹配窗口的任务栏按钮，不抢占焦点。推荐默认值。 |
+| `focus` | 将匹配窗口带到前台，会改变当前焦点。 |
+| `none` | 不执行窗口动作，只保留可选声音和 toast 行为。 |
 
-`action` 枚举：
+如果设置了 relay 鉴权 token，请在请求中加入 header 或 query 参数：
 
-| 值 | 含义 |
-| --- | --- |
-| `flash` | 闪烁匹配的 VS Code 窗口任务栏图标，不抢焦点。推荐默认值。 |
-| `focus` | 将匹配的 VS Code 窗口拉到前台，会打断当前焦点。 |
-| `none` | 不执行窗口动作，只保留日志/可选内部通知。 |
+```bash
+curl -fsS -X POST "$WINDOW_FLASH_NOTIFY_ENDPOINT" \
+  -H 'Content-Type: application/json' \
+  -H 'X-Window-Flash-Token: your-token' \
+  --data '{"message":"Task finished"}'
+```
 
 ## 设置项
 
-UI 端：
+UI 端扩展：
 
-- `windowFlashNotify.flashUntilForeground`：持续闪烁任务栏图标，直到 VS Code 窗口回到前台。默认 `true`。
-- `windowFlashNotify.flashCount`：关闭持续闪烁时请求的闪烁次数。默认 `8`。
-- `windowFlashNotify.showInternalNotification`：收到 relay 请求后，同时显示 VS Code 内部通知。默认 `false`。
-- `windowFlashNotify.soundEnabled`：收到通知请求后播放 Windows 系统提示音。默认 `false`。
-- `windowFlashNotify.showToast`：收到通知请求后显示 Windows toast 通知。默认 `false`。
-- `windowFlashNotify.toastTimeout`：Windows toast 通知过期时间，单位为秒。默认 `15`。
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `windowFlashNotify.flashUntilForeground` | `true` | 持续闪烁任务栏按钮，直到 VS Code 窗口回到前台。 |
+| `windowFlashNotify.flashCount` | `8` | 关闭持续闪烁时请求的闪烁次数。 |
+| `windowFlashNotify.soundEnabled` | `false` | 收到请求后默认播放 Windows 系统提示音。 |
+| `windowFlashNotify.showToast` | `false` | 收到请求后默认显示 Windows toast 通知。 |
+| `windowFlashNotify.toastTimeout` | `15` | Toast 过期时间，单位为秒；设为 `0` 表示不设置过期时间。 |
+| `windowFlashNotify.autoInstallRelay` | `true` | 在远端窗口中检测 relay，缺失或过旧时提示安装/更新。 |
 
-UI 端命令：
+Relay 扩展：
 
-- `Window Flash Notify: 测试 UI 闪烁`：发送一次测试闪烁。
-- `Window Flash Notify: 诊断 Windows 窗口定位`：在输出面板打印可见 VS Code 窗口、进程链、匹配结果和 fallback 原因。
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `windowFlashNotifyRelay.basePort` | `7531` | relay HTTP 服务首先尝试监听的端口。 |
+| `windowFlashNotifyRelay.portSearchRange` | `10` | 从起始端口开始尝试的端口数量。 |
+| `windowFlashNotifyRelay.listenHost` | `127.0.0.1` | relay HTTP 服务绑定地址。 |
+| `windowFlashNotifyRelay.authToken` | `""` | 可选鉴权 token；设置后请求必须带 `X-Window-Flash-Token` header 或 `token` query 参数。 |
 
-Relay 端：
+## 命令
 
-- `windowFlashNotifyRelay.basePort`：启动 workspace 通知 HTTP server 时首先尝试的端口。默认 `7531`。
-- `windowFlashNotifyRelay.portSearchRange`：从起始端口开始尝试的端口数量。默认 `10`。
-- `windowFlashNotifyRelay.listenHost`：workspace HTTP server 的绑定地址。默认 `127.0.0.1`。
-- `windowFlashNotifyRelay.authToken`：可选鉴权 token。
+UI 端扩展：
 
-## 本地化
+- `Window Flash Notify: 测试 UI 闪烁`：发送一次 UI 端测试闪烁。
+- `Window Flash Notify: 诊断 Windows 窗口定位`：在输出面板中打印可见 VS Code 窗口、进程链和匹配结果。
+- `Window Flash Notify: 在远程窗口安装 Relay`：手动检查并安装/更新当前远端窗口中的 relay。
 
-扩展 manifest 使用 VS Code 标准的 `package.nls.json` / `package.nls.zh-cn.json` 本地化方式。英文作为默认 fallback，中文用户会看到中文设置项和命令标题。
+Relay 扩展：
 
-README 默认中文，英文文档见 [README.en.md](README.en.md)。
+- `Window Flash Notify Relay: 复制 Curl 命令`：复制当前工作区可用的 curl 示例命令。
+- `Window Flash Notify Relay: 测试闪烁`：从 relay 侧发送一次测试通知。
+
+## 平台与限制
+
+- 窗口闪烁、聚焦、声音和 toast 功能依赖本地 Windows 桌面环境。
+- 非 Windows 本地桌面可以运行 relay endpoint，但不会产生 Windows 任务栏闪烁。
+- `focus` 会主动改变前台窗口；不希望打断当前工作时请使用默认的 `flash`。
+- 窗口定位会优先使用 VS Code 进程链和当前 workspace 信息。极端情况下，如果多个窗口标题和进程关系都无法区分，扩展会避免无差别闪烁所有 VS Code 窗口。
+- 点击 toast 后会尝试返回原始 VS Code 窗口；Windows 启动协议处理程序可能需要短暂时间。
+
+## 排障
+
+- 终端里没有 `WINDOW_FLASH_NOTIFY_ENDPOINT`：确认 relay 已安装并启用，然后打开新的 VS Code 集成终端。
+- `/health` 不可访问：检查 relay 是否安装在当前 workspace/remote 侧，并确认窗口已 Reload。
+- 没有闪烁：确认本地 VS Code 运行在 Windows 桌面环境，且请求的 `action` 是 `flash`。
+- 提醒到了错误窗口：运行 `Window Flash Notify: 诊断 Windows 窗口定位`，查看输出面板中的窗口匹配结果；尽量避免同时打开多个标题完全相同的 VS Code 窗口。
+- toast 不显示：确认 Windows 通知未被系统策略、专注助手或 VS Code 通知设置屏蔽。
+
+## 安全
+
+relay 默认只监听 `127.0.0.1`，用于同一台 workspace 机器上的脚本调用。除非明确需要，请不要把 `windowFlashNotifyRelay.listenHost` 暴露到外部网络。如果必须暴露，请设置 `windowFlashNotifyRelay.authToken` 并限制网络访问来源。
+
+## 许可
+
+MIT

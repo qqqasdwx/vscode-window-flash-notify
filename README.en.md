@@ -2,66 +2,53 @@
 
 [中文](README.md) | English
 
-Window Flash Notify lets scripts, terminal tasks, remote builds, and test runs notify you by flashing the matching Windows VS Code taskbar button without stealing focus.
+Window Flash Notify lets scripts, terminal tasks, remote builds, and test runs notify you by flashing the matching Windows VS Code taskbar button. The default behavior does not steal focus.
 
-It is useful for:
+Common use cases:
 
-- Long-running tasks in Remote SSH, WSL, Dev Containers, or Vagrant
-- Local or remote shell hooks
-- Build, test, and deployment completion notifications
-- Workflows with multiple VS Code windows where only the matching window should flash
+- Long-running tasks in Remote SSH, WSL, Dev Containers, or Vagrant workspaces
+- Local or remote shell hooks, build scripts, and test scripts
+- Workflows with multiple VS Code windows where only the originating window should notify you
+- Automation that needs optional sound or Windows toast notifications
 
-## How It Works
+## Features
 
-The project contains two VS Code extensions:
+- Flash the matching VS Code taskbar button without interrupting your current focus.
+- Supports `flash`, `focus`, and `none` actions.
+- Optional Windows system sound and native toast notifications.
+- Clicking a toast attempts to return to the originating VS Code window.
+- Supports VS Code Remote workflows through a workspace-side relay.
+- The relay injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code integrated terminals.
+- The `/health` endpoint reports relay and UI extension versions for diagnostics.
 
-- `qqqasdwx.vscode-window-flash-notify`: the UI-side extension. It runs in the local VS Code UI extension host and calls Windows `FlashWindowEx` for the matching VS Code window.
-- `qqqasdwx.vscode-window-flash-notify-relay`: the workspace-side relay. It runs on the current workspace machine, listens on `127.0.0.1`, accepts HTTP requests from local scripts, and forwards them to the UI extension via a VS Code command.
+## Installation
 
-The split matches VS Code Remote's extension host model: the workspace extension can listen on the workspace machine's localhost, while the UI extension can call local Windows desktop APIs.
+This project contains two extensions:
 
-## Notes
+- `qqqasdwx.vscode-window-flash-notify`: the UI extension, installed in the local VS Code UI.
+- `qqqasdwx.vscode-window-flash-notify-relay`: the workspace relay, installed where your scripts actually run.
 
-- The UI-side flashing feature depends on the Windows taskbar API. On non-Windows local desktops, the relay endpoint still works, but `flash` is a no-op.
-- `WINDOW_FLASH_NOTIFY_ENDPOINT` is injected only into VS Code integrated terminals. If an existing terminal does not have it, open a new terminal.
-- Windows window targeting first tries to match the current UI extension host to a VS Code window through the Windows process chain. Workspace hints are used only when the process-chain match is unavailable or ambiguous.
-- Fallback matching is still conservative. If no visible VS Code window title matches the workspace hints, the UI extension does not fall back to flashing every VS Code window. Run `Window Flash Notify: Diagnose Windows Targeting` to inspect visible windows, process chains, and the selected target.
-- `focus` actively brings the matching window to the foreground. `flash` is recommended by default because it does not interrupt focus.
-- Toast clicks return to the extension through a VS Code URI and then try to focus the original VS Code window. VS Code may deliver the URI to the topmost window first, so the URI includes the original extension host process information for retargeting.
+Install the UI extension first. The UI extension declares the relay in its extension pack. In remote windows, it also checks whether the relay is missing or outdated and prompts you to install or update it. After installing or updating the relay, reload the window so the relay can activate and inject the terminal environment variable.
 
-## Install
+For local-only workflows, both extensions can be installed locally. For Remote SSH, WSL, Dev Containers, Vagrant, and similar workflows, the UI extension runs locally and the relay runs on the remote/workspace side.
 
-Install the UI-side extension first. Its manifest declares the relay as an extension pack member, so a normal Marketplace install should also install the relay:
+## Quick Start
 
-```text
-qqqasdwx.vscode-window-flash-notify
-qqqasdwx.vscode-window-flash-notify-relay
-```
-
-For Remote SSH, WSL, Dev Container, or Vagrant workflows:
-
-- Install the UI extension locally.
-- Install the Relay extension on the remote/workspace side.
-
-For local-only workflows, both extensions can be installed locally.
-
-## Quick Test
-
-The relay injects this environment variable into VS Code integrated terminals:
+After the relay starts, it injects this environment variable into VS Code integrated terminals:
 
 ```bash
 WINDOW_FLASH_NOTIFY_ENDPOINT=http://127.0.0.1:7531/notify
 ```
 
-If the variable is missing from the current terminal, open a new VS Code terminal.
+If the current terminal does not have the variable, open a new VS Code integrated terminal. If the default port is busy, the relay tries later ports, so scripts should prefer the environment variable instead of hard-coding `7531`.
 
-The minimum call is an empty `POST` request:
+Send an empty `POST` request to trigger the default flash action:
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 ```
 
-Send a JSON body when you want to customize the log text:
+Send JSON when you want to customize the message or behavior:
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
@@ -69,15 +56,16 @@ curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}
   --data '{"message":"Task finished","type":"info","action":"flash"}'
 ```
 
-Health check:
+Check the relay endpoint, UI extension status, and versions:
 
 ```bash
-curl -fsS http://127.0.0.1:7531/health
+endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
+curl -fsS "${endpoint%/notify}/health"
 ```
 
-## Generic Hook Example
+## Script Example
 
-Use this at the end of any shell hook, build script, or test script:
+Use this at the end of a build, test, or deployment script:
 
 ```bash
 #!/usr/bin/env bash
@@ -89,79 +77,109 @@ endpoint="${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
 
 curl -fsS --max-time 3 -X POST "$endpoint" \
   -H 'Content-Type: application/json' \
-  --data "{\"message\":\"Finished: ${project}\"}" \
+  --data "{\"message\":\"Finished: ${project}\",\"action\":\"flash\"}" \
   >/dev/null || true
 ```
 
-## Request Body
+Example with sound and Windows toast enabled:
 
-The request body can be omitted. An omitted body is equivalent to `{}` and defaults to `flash`.
-
-Optional JSON example:
-
-```json
-{
-  "message": "Task finished"
-}
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
+  -H 'Content-Type: application/json' \
+  --data '{"message":"Build finished","type":"info","action":"flash","sound":true,"showToast":true,"toastTimeout":0}'
 ```
 
-Fields:
+`toastTimeout: 0` leaves the toast expiration unset and lets Windows use its default behavior.
 
-| Field | Required | Default | Description |
+## Request API
+
+The `POST /notify` body can be omitted. An omitted body is equivalent to `{}` and defaults to `flash`.
+
+| Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `title` | No | `"<workspace> - Window Flash Notify"` | Toast notification title. |
-| `message` | No | `"Notification received"` | Text for logs or optional VS Code internal notifications. |
-| `type` | No | `"info"` | Message level. See the `type` enum below. |
-| `action` | No | `"flash"` | Action to run after receiving the request. See the `action` enum below. |
-| `workspaceName` | No | Current VS Code workspace name | Window title match hint. Callers usually do not need to send this; the relay fills it automatically. |
-| `workspacePath` | No | First folder path in the current workspace | Workspace path match hint. Its basename is also used for title matching. Callers usually do not need to send this. |
-| `workspaceHints` | No | Generated from the current workspace | Extra window title match hints. Only send this when overriding the default matching behavior. |
-| `showInternalNotification` | No | UI setting `windowFlashNotify.showInternalNotification` | Also show a VS Code internal notification from the UI extension. |
-| `sound` | No | UI setting `windowFlashNotify.soundEnabled` | Play a Windows system notification sound. |
-| `showToast` | No | UI setting `windowFlashNotify.showToast` | Show a Windows toast notification. |
-| `toastTimeout` | No | UI setting `windowFlashNotify.toastTimeout` | Toast expiration timeout in seconds. |
+| `title` | `string` | `"<workspace> - Window Flash Notify"` | Windows toast title. |
+| `message` | `string` | `"Notification received"` | Notification body text. |
+| `type` | `"info" \| "warning" \| "error"` | `"info"` | Message level. When sound is enabled, this selects the Windows system sound. |
+| `action` | `"flash" \| "focus" \| "none"` | `"flash"` | Window action to run after receiving the request. |
+| `workspaceName` | `string` | Current VS Code workspace name | Window matching hint. Usually filled by the relay. |
+| `workspacePath` | `string` | First folder path in the current workspace | Window matching hint. Usually filled by the relay. |
+| `workspaceHints` | `string[]` | Generated from the current workspace | Additional window matching hints. Use only when overriding the default matching behavior. |
+| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | Play a Windows system sound. |
+| `showToast` | `boolean` | `windowFlashNotify.showToast` | Show a Windows toast notification. |
+| `toastTimeout` | `number` | `windowFlashNotify.toastTimeout` | Toast expiration timeout in seconds. Set to `0` to leave expiration unset. |
 
-`type` enum:
+`action` values:
 
-| Value | Meaning |
-| --- | --- |
-| `info` | Informational message for success, completion, or general reminders. |
-| `warning` | Warning message for cases that need attention but are not necessarily failures. |
-| `error` | Error message for failures or cases that need immediate attention. |
-
-`action` enum:
-
-| Value | Meaning |
+| Value | Behavior |
 | --- | --- |
 | `flash` | Flash the matching VS Code taskbar button without stealing focus. Recommended default. |
-| `focus` | Bring the matching VS Code window to the foreground. This interrupts current focus. |
-| `none` | Do not run a window action; keep only logging and optional internal notification behavior. |
+| `focus` | Bring the matching VS Code window to the foreground. This changes current focus. |
+| `none` | Do not run a window action. Optional sound and toast behavior still apply. |
+
+If you configure a relay authentication token, include it as a header or query parameter:
+
+```bash
+curl -fsS -X POST "$WINDOW_FLASH_NOTIFY_ENDPOINT" \
+  -H 'Content-Type: application/json' \
+  -H 'X-Window-Flash-Token: your-token' \
+  --data '{"message":"Task finished"}'
+```
 
 ## Settings
 
 UI extension:
 
-- `windowFlashNotify.flashUntilForeground`: flash the taskbar until the VS Code window becomes foreground. Default: `true`.
-- `windowFlashNotify.flashCount`: number of flashes to request when continuous flashing is disabled. Default: `8`.
-- `windowFlashNotify.showInternalNotification`: also show a VS Code internal notification after receiving a relayed request. Default: `false`.
-- `windowFlashNotify.soundEnabled`: play a Windows system notification sound after receiving a request. Default: `false`.
-- `windowFlashNotify.showToast`: show a Windows toast notification after receiving a request. Default: `false`.
-- `windowFlashNotify.toastTimeout`: Windows toast expiration timeout in seconds. Default: `15`.
-
-UI commands:
-
-- `Window Flash Notify: Test UI Flash`: send one test flash.
-- `Window Flash Notify: Diagnose Windows Targeting`: print visible VS Code windows, process chains, selected target, and fallback reason to the output panel.
+| Setting | Default | Description |
+| --- | --- | --- |
+| `windowFlashNotify.flashUntilForeground` | `true` | Keep flashing the taskbar button until the VS Code window becomes foreground. |
+| `windowFlashNotify.flashCount` | `8` | Number of flashes to request when continuous flashing is disabled. |
+| `windowFlashNotify.soundEnabled` | `false` | Play a Windows system sound by default after receiving a request. |
+| `windowFlashNotify.showToast` | `false` | Show a Windows toast notification by default after receiving a request. |
+| `windowFlashNotify.toastTimeout` | `15` | Toast expiration timeout in seconds. Set to `0` to leave expiration unset. |
+| `windowFlashNotify.autoInstallRelay` | `true` | In remote windows, prompt to install or update the relay when it is missing or outdated. |
 
 Relay extension:
 
-- `windowFlashNotifyRelay.basePort`: first port to try when starting the workspace notification HTTP server. Default: `7531`.
-- `windowFlashNotifyRelay.portSearchRange`: number of ports to try from the base port. Default: `10`.
-- `windowFlashNotifyRelay.listenHost`: workspace HTTP server bind address. Default: `127.0.0.1`.
-- `windowFlashNotifyRelay.authToken`: optional request token.
+| Setting | Default | Description |
+| --- | --- | --- |
+| `windowFlashNotifyRelay.basePort` | `7531` | First port to try for the relay HTTP server. |
+| `windowFlashNotifyRelay.portSearchRange` | `10` | Number of ports to try, starting from `basePort`. |
+| `windowFlashNotifyRelay.listenHost` | `127.0.0.1` | Bind address for the relay HTTP server. |
+| `windowFlashNotifyRelay.authToken` | `""` | Optional token. When set, requests must include `X-Window-Flash-Token` or a `token` query parameter. |
 
-## Localization
+## Commands
 
-The extension manifests use VS Code's standard `package.nls.json` / `package.nls.zh-cn.json` localization files. English is the default fallback, and Chinese users see localized setting descriptions and command titles.
+UI extension:
 
-The default README is Chinese. This file is the English documentation.
+- `Window Flash Notify: Test UI Flash`: send one UI-side test flash.
+- `Window Flash Notify: Diagnose Windows Targeting`: print visible VS Code windows, process chains, and the selected target to the output panel.
+- `Window Flash Notify: Install Relay in Remote Window`: manually check and install or update the relay in the current remote window.
+
+Relay extension:
+
+- `Window Flash Notify Relay: Copy Curl Command`: copy a curl example for the current workspace.
+- `Window Flash Notify Relay: Test Flash`: send one test notification through the relay.
+
+## Platform Notes
+
+- Window flashing, focus, sound, and toast behavior require a local Windows desktop.
+- On non-Windows local desktops, the relay endpoint can run, but Windows taskbar flashing is not available.
+- `focus` actively changes the foreground window. Use the default `flash` action when you do not want to interrupt your current work.
+- Window targeting uses the VS Code process chain and current workspace hints. If multiple windows cannot be distinguished safely, the extension avoids flashing every VS Code window as a fallback.
+- Clicking a toast attempts to return to the originating VS Code window. Windows may take a short moment to start the protocol handler.
+
+## Troubleshooting
+
+- `WINDOW_FLASH_NOTIFY_ENDPOINT` is missing: make sure the relay is installed and enabled, then open a new VS Code integrated terminal.
+- `/health` is not reachable: make sure the relay is installed on the current workspace/remote side and reload the window.
+- Nothing flashes: make sure the local VS Code UI is running on a Windows desktop and the request uses `action: "flash"`.
+- The wrong window is notified: run `Window Flash Notify: Diagnose Windows Targeting` and inspect the output panel. Avoid opening multiple VS Code windows with identical titles when possible.
+- Toasts do not appear: check Windows notification settings, Focus Assist, organization policies, and VS Code notification settings.
+
+## Security
+
+The relay binds to `127.0.0.1` by default and is intended for scripts running on the same workspace machine. Do not expose `windowFlashNotifyRelay.listenHost` to external networks unless you explicitly need that behavior. If you do expose it, set `windowFlashNotifyRelay.authToken` and restrict network access.
+
+## License
+
+MIT

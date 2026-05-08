@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "%extension.description%",
-  "version": "0.2.0",
+  "version": "0.2.24",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -34,6 +34,8 @@
   ],
   "activationEvents": [
     "onUri",
+    "onCommand:windowFlashNotify.health",
+    "onCommand:windowFlashNotify.installRelay",
     "onCommand:windowFlashNotify.notify",
     "onCommand:windowFlashNotify.flashWindow",
     "onCommand:windowFlashNotify.focusWindow",
@@ -54,6 +56,10 @@
       {
         "command": "windowFlashNotify.diagnoseWindows",
         "title": "%command.diagnoseWindows.title%"
+      },
+      {
+        "command": "windowFlashNotify.installRelay",
+        "title": "%command.installRelay.title%"
       }
     ],
     "configuration": {
@@ -71,11 +77,6 @@
           "maximum": 100,
           "description": "%configuration.flashCount.description%"
         },
-        "windowFlashNotify.showInternalNotification": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.showInternalNotification.description%"
-        },
         "windowFlashNotify.soundEnabled": {
           "type": "boolean",
           "default": false,
@@ -89,9 +90,14 @@
         "windowFlashNotify.toastTimeout": {
           "type": "number",
           "default": 15,
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 300,
           "description": "%configuration.toastTimeout.description%"
+        },
+        "windowFlashNotify.autoInstallRelay": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.autoInstallRelay.description%"
         }
       }
     }
