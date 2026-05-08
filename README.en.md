@@ -24,17 +24,14 @@ The split matches VS Code Remote's extension host model: the workspace extension
 
 - The UI-side flashing feature depends on the Windows taskbar API. On non-Windows local desktops, the relay endpoint still works, but `flash` is a no-op.
 - `WINDOW_FLASH_NOTIFY_ENDPOINT` is injected only into VS Code integrated terminals. If an existing terminal does not have it, open a new terminal.
-- Window targeting currently depends on workspace hints in the VS Code window title, such as the workspace name, folder path, or request `workspaceHints`. If the window has no opened folder or workspace, the extension may be unable to identify the target window and return an error.
-- Window matching is conservative. If no visible VS Code window title matches the workspace hints, the UI extension does not fall back to flashing every VS Code window. For reliable matching, open a project folder/workspace or send `workspaceHints` that appear in the window title.
+- Windows window targeting first tries to match the current UI extension host to a VS Code window through the Windows process chain. Workspace hints are used only when the process-chain match is unavailable or ambiguous.
+- Fallback matching is still conservative. If no visible VS Code window title matches the workspace hints, the UI extension does not fall back to flashing every VS Code window. Run `Window Flash Notify: Diagnose Windows Targeting` to inspect visible windows, process chains, and the selected target.
 - `focus` actively brings the matching window to the foreground. `flash` is recommended by default because it does not interrupt focus.
-
-## TODO
-
-- [ ] Support VS Code/Electron process-chain based window targeting to reduce reliance on workspace title matching and improve detection for default windows without an opened folder/workspace.
+- Toast clicks return to the extension through a VS Code URI and then try to focus the original VS Code window. VS Code may deliver the URI to the topmost window first, so the URI includes the original extension host process information for retargeting.
 
 ## Install
 
-Install both extensions:
+Install the UI-side extension first. Its manifest declares the relay as an extension pack member, so a normal Marketplace install should also install the relay:
 
 ```text
 qqqasdwx.vscode-window-flash-notify
@@ -112,6 +109,7 @@ Fields:
 
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
+| `title` | No | `"<workspace> - Window Flash Notify"` | Toast notification title. |
 | `message` | No | `"Notification received"` | Text for logs or optional VS Code internal notifications. |
 | `type` | No | `"info"` | Message level. See the `type` enum below. |
 | `action` | No | `"flash"` | Action to run after receiving the request. See the `action` enum below. |
@@ -119,6 +117,9 @@ Fields:
 | `workspacePath` | No | First folder path in the current workspace | Workspace path match hint. Its basename is also used for title matching. Callers usually do not need to send this. |
 | `workspaceHints` | No | Generated from the current workspace | Extra window title match hints. Only send this when overriding the default matching behavior. |
 | `showInternalNotification` | No | UI setting `windowFlashNotify.showInternalNotification` | Also show a VS Code internal notification from the UI extension. |
+| `sound` | No | UI setting `windowFlashNotify.soundEnabled` | Play a Windows system notification sound. |
+| `showToast` | No | UI setting `windowFlashNotify.showToast` | Show a Windows toast notification. |
+| `toastTimeout` | No | UI setting `windowFlashNotify.toastTimeout` | Toast expiration timeout in seconds. |
 
 `type` enum:
 
@@ -143,6 +144,14 @@ UI extension:
 - `windowFlashNotify.flashUntilForeground`: flash the taskbar until the VS Code window becomes foreground. Default: `true`.
 - `windowFlashNotify.flashCount`: number of flashes to request when continuous flashing is disabled. Default: `8`.
 - `windowFlashNotify.showInternalNotification`: also show a VS Code internal notification after receiving a relayed request. Default: `false`.
+- `windowFlashNotify.soundEnabled`: play a Windows system notification sound after receiving a request. Default: `false`.
+- `windowFlashNotify.showToast`: show a Windows toast notification after receiving a request. Default: `false`.
+- `windowFlashNotify.toastTimeout`: Windows toast expiration timeout in seconds. Default: `15`.
+
+UI commands:
+
+- `Window Flash Notify: Test UI Flash`: send one test flash.
+- `Window Flash Notify: Diagnose Windows Targeting`: print visible VS Code windows, process chains, selected target, and fallback reason to the output panel.
 
 Relay extension:
 

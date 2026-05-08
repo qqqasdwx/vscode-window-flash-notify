@@ -4,7 +4,7 @@
 
 Window Flash Notify Relay is the workspace-side extension. It runs on the current VS Code workspace machine, listens on `127.0.0.1`, accepts `POST /notify` from scripts, and forwards the payload to the local UI-side extension.
 
-It is normally installed together with the UI extension:
+It is normally installed together with the UI extension. Install the UI-side extension first; it declares the relay as an extension pack member:
 
 ```text
 qqqasdwx.vscode-window-flash-notify
@@ -19,4 +19,12 @@ The relay injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code integrated termina
 
 ```bash
 curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}"
+```
+
+Send a toast and sound notification:
+
+```bash
+curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}" \
+  -H 'Content-Type: application/json' \
+  --data '{"message":"Task finished","showToast":true,"sound":true}'
 ```

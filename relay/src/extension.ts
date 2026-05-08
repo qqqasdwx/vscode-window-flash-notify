@@ -6,6 +6,7 @@ type NotifyType = "info" | "warning" | "error";
 type NotifyAction = "flash" | "focus" | "none";
 
 interface NotifyPayload {
+  title?: string;
   message?: string;
   type?: NotifyType;
   action?: NotifyAction;
@@ -13,6 +14,9 @@ interface NotifyPayload {
   workspacePath?: string;
   workspaceHints?: string[];
   showInternalNotification?: boolean;
+  sound?: boolean;
+  showToast?: boolean;
+  toastTimeout?: number;
 }
 
 const uiNotifyCommand = "windowFlashNotify.notify";
@@ -186,17 +190,57 @@ function parsePayload(raw: string): NotifyPayload {
     return {};
   }
 
-  const parsed = JSON.parse(raw) as NotifyPayload;
-  if (parsed.type && !["info", "warning", "error"].includes(parsed.type)) {
-    throw new Error(`Invalid notification type: ${parsed.type}`);
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  if (parsed.title !== undefined && typeof parsed.title !== "string") {
+    throw new Error("title must be a string");
   }
-  if (parsed.action && !["flash", "focus", "none"].includes(parsed.action)) {
-    throw new Error(`Invalid action: ${parsed.action}`);
+  if (parsed.message !== undefined && typeof parsed.message !== "string") {
+    throw new Error("message must be a string");
   }
-  if (parsed.workspaceHints && !Array.isArray(parsed.workspaceHints)) {
+  if (
+    parsed.type !== undefined &&
+    (typeof parsed.type !== "string" || !["info", "warning", "error"].includes(parsed.type))
+  ) {
+    throw new Error(`Invalid notification type: ${String(parsed.type)}`);
+  }
+  if (
+    parsed.action !== undefined &&
+    (typeof parsed.action !== "string" || !["flash", "focus", "none"].includes(parsed.action))
+  ) {
+    throw new Error(`Invalid action: ${String(parsed.action)}`);
+  }
+  if (parsed.workspaceName !== undefined && typeof parsed.workspaceName !== "string") {
+    throw new Error("workspaceName must be a string");
+  }
+  if (parsed.workspacePath !== undefined && typeof parsed.workspacePath !== "string") {
+    throw new Error("workspacePath must be a string");
+  }
+  if (parsed.workspaceHints !== undefined && !Array.isArray(parsed.workspaceHints)) {
     throw new Error("workspaceHints must be an array of strings");
   }
-  return parsed;
+  if (
+    Array.isArray(parsed.workspaceHints) &&
+    parsed.workspaceHints.some((hint) => typeof hint !== "string")
+  ) {
+    throw new Error("workspaceHints must be an array of strings");
+  }
+  if (parsed.showInternalNotification !== undefined && typeof parsed.showInternalNotification !== "boolean") {
+    throw new Error("showInternalNotification must be a boolean");
+  }
+  if (parsed.sound !== undefined && typeof parsed.sound !== "boolean") {
+    throw new Error("sound must be a boolean");
+  }
+  if (parsed.showToast !== undefined && typeof parsed.showToast !== "boolean") {
+    throw new Error("showToast must be a boolean");
+  }
+  if (parsed.toastTimeout !== undefined && (
+    typeof parsed.toastTimeout !== "number" ||
+    !Number.isFinite(parsed.toastTimeout) ||
+    parsed.toastTimeout < 1
+  )) {
+    throw new Error("toastTimeout must be a positive number");
+  }
+  return parsed as NotifyPayload;
 }
 
 function readRequestBody(req: http.IncomingMessage): Promise<string> {
@@ -267,6 +311,8 @@ function buildCurlCommand(): string {
     message: "Window Flash Notify relay test",
     type: "info",
     action: "flash",
+    showToast: true,
+    sound: true,
     workspaceName: getWorkspaceName(),
     workspacePath: getPrimaryWorkspacePath()
   });

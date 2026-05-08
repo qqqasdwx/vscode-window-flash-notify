@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.2.0
+
+- Add Marketplace icons for the UI and relay extensions.
+- Prefer Windows process-chain window targeting, with workspace hints as a fallback.
+- Add a Windows targeting diagnostics command.
+- Add optional Windows system sound and toast notifications.
+- Open toast clicks through the VS Code URI handler and retarget the original window.
+- Declare the relay as an extension pack member of the UI extension to reduce missed installs.
+
 ## 0.1.7
 
 - Verify the publish workflow with Node 24 action runtime versions.

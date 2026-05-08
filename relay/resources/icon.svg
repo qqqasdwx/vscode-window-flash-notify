@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Window Flash Notify icon">
+  <defs>
+    <linearGradient id="window" x1="48" y1="42" x2="208" y2="214" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f8cff"/>
+      <stop offset="1" stop-color="#005fb8"/>
+    </linearGradient>
+    <linearGradient id="flash" x1="125" y1="54" x2="177" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff176"/>
+      <stop offset="0.52" stop-color="#ffbf2f"/>
+      <stop offset="1" stop-color="#ff7a1a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#00182e" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="42" fill="#101820"/>
+  <g filter="url(#shadow)">
+    <rect x="42" y="54" width="172" height="136" rx="18" fill="url(#window)"/>
+    <rect x="42" y="54" width="172" height="34" rx="18" fill="#d8ecff" opacity="0.95"/>
+    <path d="M42 82h172" stroke="#0b4f97" stroke-width="6" opacity="0.3"/>
+    <circle cx="66" cy="71" r="6" fill="#ff5f56"/>
+    <circle cx="86" cy="71" r="6" fill="#ffbd2e"/>
+    <circle cx="106" cy="71" r="6" fill="#27c93f"/>
+    <rect x="65" y="111" width="73" height="13" rx="6.5" fill="#e8f4ff" opacity="0.95"/>
+    <rect x="65" y="139" width="52" height="13" rx="6.5" fill="#b9dcff" opacity="0.85"/>
+  </g>
+
+  <path
+    d="M148 42 96 143h45l-25 71 78-111h-46l32-61z"
+    fill="url(#flash)"
+    stroke="#fff8c7"
+    stroke-width="8"
+    stroke-linejoin="round"
+    filter="url(#shadow)"
+  />
+  <path d="M198 61c16 13 26 33 26 54M215 181c-13 17-32 29-54 33" fill="none" stroke="#8fd6ff" stroke-width="11" stroke-linecap="round"/>
+  <path d="M30 106c5-22 19-41 38-53M58 217c-20-13-32-33-35-57" fill="none" stroke="#8fd6ff" stroke-width="11" stroke-linecap="round" opacity="0.75"/>
+</svg>

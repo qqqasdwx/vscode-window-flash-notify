@@ -1,8 +1,12 @@
 {
   "extension.description": "Flash the local Windows VS Code taskbar window from workspace notifications without stealing focus.",
   "command.testFlash.title": "Window Flash Notify: Test UI Flash",
+  "command.diagnoseWindows.title": "Window Flash Notify: Diagnose Windows Targeting",
   "configuration.title": "Window Flash Notify",
   "configuration.flashUntilForeground.description": "Flash the taskbar until the VS Code window becomes foreground.",
   "configuration.flashCount.description": "Number of flashes to request when windowFlashNotify.flashUntilForeground is disabled.",
-  "configuration.showInternalNotification.description": "Also show a VS Code internal notification after receiving a relayed request."
+  "configuration.showInternalNotification.description": "Also show a VS Code internal notification after receiving a relayed request.",
+  "configuration.soundEnabled.description": "Play a Windows system sound after receiving a notification request unless the request overrides sound.",
+  "configuration.showToast.description": "Also show a Windows toast notification. Clicking it attempts to focus the original VS Code window through a VS Code URI.",
+  "configuration.toastTimeout.description": "Windows toast expiration timeout in seconds."
 }
