@@ -1,0 +1,15 @@
+{
+  "Test notification": "Test notification",
+  "Window Flash Notify Relay is already installed in this remote window.": "Window Flash Notify Relay is already installed in this remote window.",
+  "Update Relay": "Update Relay",
+  "Install Relay": "Install Relay",
+  "Later": "Later",
+  "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.": "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.",
+  "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications.": "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications.",
+  "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it.": "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it.",
+  "Reload Window": "Reload Window",
+  "Failed to install Window Flash Notify Relay: {message}": "Failed to install Window Flash Notify Relay: {message}",
+  "Notification received": "Notification received",
+  "{workspaceName} - Window Flash Notify": "{workspaceName} - Window Flash Notify",
+  "Focus VS Code": "Focus VS Code"
+}

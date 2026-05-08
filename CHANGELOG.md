@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.2.25
+
+- Add runtime localization bundles for UI and relay extension messages.
+- Localize relay install prompts, reload prompts, toast action text, test
+  notification messages, copied-command confirmation, and terminal environment
+  descriptions.
+
 ## 0.2.24
 
 - Speed up toast click focus by taking a title-only strong workspace hint fast

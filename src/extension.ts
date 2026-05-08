@@ -99,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotify.testFlash", async () => {
       await handleNotification({
-        message: "Test notification",
+        message: vscode.l10n.t("Test notification"),
         type: "info",
         action: "flash"
       });
@@ -274,7 +274,9 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     const state = await getRelayInstallState();
     if (state.ok) {
       if (forced) {
-        vscode.window.showInformationMessage("Window Flash Notify Relay is already installed in this remote window.");
+        vscode.window.showInformationMessage(
+          vscode.l10n.t("Window Flash Notify Relay is already installed in this remote window.")
+        );
       }
       return;
     }
@@ -283,12 +285,18 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     }
     relayPromptShownThisSession = true;
 
-    const installLabel = state.installed ? "Update Relay" : "Install Relay";
+    const installLabel = state.installed ? vscode.l10n.t("Update Relay") : vscode.l10n.t("Install Relay");
+    const laterLabel = vscode.l10n.t("Later");
     const message = state.installed
-      ? `Window Flash Notify Relay ${state.version || ""} is older than ${minimumRelayVersion}. Update it in this remote window.`
-      : "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications.";
+      ? vscode.l10n.t(
+        "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.",
+        { version: state.version || "", minimumVersion: minimumRelayVersion }
+      )
+      : vscode.l10n.t(
+        "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications."
+      );
 
-    const choice = await vscode.window.showWarningMessage(message, installLabel, "Later");
+    const choice = await vscode.window.showWarningMessage(message, installLabel, laterLabel);
     if (choice !== installLabel) {
       return;
     }
@@ -305,18 +313,21 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     );
 
     await context.workspaceState.update("windowFlashNotify.lastRelayInstallAttempt", Date.now());
+    const reloadLabel = vscode.l10n.t("Reload Window");
     const reloadChoice = await vscode.window.showInformationMessage(
-      "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it.",
-      "Reload Window",
-      "Later"
+      vscode.l10n.t("Window Flash Notify Relay was installed or updated. Reload this remote window to activate it."),
+      reloadLabel,
+      laterLabel
     );
-    if (reloadChoice === "Reload Window") {
+    if (reloadChoice === reloadLabel) {
       await vscode.commands.executeCommand("workbench.action.reloadWindow");
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     output.appendLine(`Relay install failed: ${message}`);
-    vscode.window.showErrorMessage(`Failed to install Window Flash Notify Relay: ${message}`);
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Failed to install Window Flash Notify Relay: {message}", { message })
+    );
   } finally {
     relayPromptInProgress = false;
   }
@@ -348,7 +359,7 @@ async function getRelayInstallState(): Promise<{ ok: boolean; installed: boolean
 }
 
 async function handleNotification(payload: NotifyPayload): Promise<NotifyResult> {
-  const message = payload.message || "Notification received";
+  const message = payload.message || getDefaultNotificationMessage();
   const action = payload.action || "flash";
   const type = payload.type || "info";
   const workspaceHints = getWorkspaceMatchHints(
@@ -408,8 +419,8 @@ async function showToastNotification(
     return;
   }
 
-  const message = payload.message || "Notification received";
-  const title = payload.title || `${workspaceName} - Window Flash Notify`;
+  const message = payload.message || getDefaultNotificationMessage();
+  const title = payload.title || vscode.l10n.t("{workspaceName} - Window Flash Notify", { workspaceName });
   const toastTimeout = clampNumber(
     payload.toastTimeout ?? getConfig().get<number>("toastTimeout", 15),
     0,
@@ -424,8 +435,13 @@ async function showToastNotification(
     WINDOW_FLASH_NOTIFY_TOAST_MESSAGE: message,
     WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(toastTimeout),
     WINDOW_FLASH_NOTIFY_TOAST_FOCUS_URI: focusUri,
+    WINDOW_FLASH_NOTIFY_TOAST_ACTION: vscode.l10n.t("Focus VS Code"),
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName || "Visual Studio Code"
   });
+}
+
+function getDefaultNotificationMessage(): string {
+  return vscode.l10n.t("Notification received");
 }
 
 async function buildToastFocusUri(
@@ -600,7 +616,11 @@ $ErrorActionPreference = 'Stop'
 $title = $env:WINDOW_FLASH_NOTIFY_TOAST_TITLE
 $message = $env:WINDOW_FLASH_NOTIFY_TOAST_MESSAGE
 $focusUri = $env:WINDOW_FLASH_NOTIFY_TOAST_FOCUS_URI
+$actionContent = $env:WINDOW_FLASH_NOTIFY_TOAST_ACTION
 $appId = $env:WINDOW_FLASH_NOTIFY_PRODUCT
+if ([string]::IsNullOrWhiteSpace($actionContent)) {
+  $actionContent = 'Focus VS Code'
+}
 if ([string]::IsNullOrWhiteSpace($appId)) {
   $appId = 'Visual Studio Code'
 }
@@ -637,6 +657,7 @@ function Escape-Xml([string]$value) {
 $escapedTitle = Escape-Xml $title
 $escapedMessage = Escape-Xml $message
 $escapedFocusUri = Escape-Xml $focusUri
+$escapedActionContent = Escape-Xml $actionContent
 
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
@@ -650,7 +671,7 @@ $xmlText = @"
     </binding>
   </visual>
   <actions>
-    <action content="Focus VS Code" arguments="$escapedFocusUri" activationType="protocol" />
+    <action content="$escapedActionContent" arguments="$escapedFocusUri" activationType="protocol" />
   </actions>
 </toast>
 "@

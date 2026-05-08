@@ -20,6 +20,7 @@ Common use cases:
 - Supports VS Code Remote workflows through a workspace-side relay.
 - The relay injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code integrated terminals.
 - The `/health` endpoint reports relay and UI extension versions for diagnostics.
+- Supports English and Chinese localization for extension manifests and runtime prompts.
 
 ## Installation
 

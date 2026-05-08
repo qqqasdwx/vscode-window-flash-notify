@@ -55,13 +55,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotifyRelay.copyCurlCommand", async () => {
       await vscode.env.clipboard.writeText(buildCurlCommand());
-      vscode.window.showInformationMessage("Window Flash Notify relay curl command copied.");
+      vscode.window.showInformationMessage(vscode.l10n.t("Window Flash Notify relay curl command copied."));
     })
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotifyRelay.testFlash", async () => {
       await forwardToUi({
-        message: "Relay test notification",
+        message: vscode.l10n.t("Relay test notification"),
         type: "info",
         action: "flash"
       });
@@ -633,7 +633,7 @@ function updateTerminalEnvironment(endpoint: string): void {
 
   const collection = extensionContext.environmentVariableCollection;
   collection.persistent = false;
-  collection.description = "Window Flash Notify Relay endpoint";
+  collection.description = vscode.l10n.t("Window Flash Notify Relay endpoint");
   collection.replace(endpointEnvVar, endpoint, {
     applyAtProcessCreation: true,
     applyAtShellIntegration: true
@@ -646,7 +646,7 @@ function buildCurlCommand(): string {
   const token = getConfig().get<string>("authToken", "");
   const tokenHeader = token ? ` \\\n  -H 'X-Window-Flash-Token: ${shellSingleQuote(token)}'` : "";
   const body = JSON.stringify({
-    message: "Window Flash Notify relay test",
+    message: vscode.l10n.t("Window Flash Notify relay test"),
     type: "info",
     action: "flash",
     showToast: true,

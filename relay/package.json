@@ -2,10 +2,11 @@
   "name": "vscode-window-flash-notify-relay",
   "displayName": "Window Flash Notify Relay",
   "description": "%extension.description%",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
+  "l10n": "./l10n",
   "repository": {
     "type": "git",
     "url": "https://github.com/qqqasdwx/vscode-window-flash-notify.git"

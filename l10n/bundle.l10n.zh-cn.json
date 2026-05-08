@@ -1,0 +1,15 @@
+{
+  "Test notification": "测试通知",
+  "Window Flash Notify Relay is already installed in this remote window.": "Window Flash Notify Relay 已安装在此远程窗口中。",
+  "Update Relay": "更新 Relay",
+  "Install Relay": "安装 Relay",
+  "Later": "稍后",
+  "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.": "Window Flash Notify Relay {version} 低于所需版本 {minimumVersion}。请在此远程窗口中更新。",
+  "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications.": "此远程窗口尚未安装 Window Flash Notify Relay。安装后，本地终端脚本即可发送通知。",
+  "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it.": "Window Flash Notify Relay 已安装或更新。请重新加载此远程窗口以启用。",
+  "Reload Window": "重新加载窗口",
+  "Failed to install Window Flash Notify Relay: {message}": "安装 Window Flash Notify Relay 失败：{message}",
+  "Notification received": "收到通知",
+  "{workspaceName} - Window Flash Notify": "{workspaceName} - Window Flash Notify",
+  "Focus VS Code": "聚焦 VS Code"
+}

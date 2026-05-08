@@ -20,6 +20,7 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 - 支持 VS Code Remote 场景，由 workspace 侧 relay 接收脚本请求，再转发到本地 UI 侧扩展。
 - relay 会向 VS Code 集成终端注入 `WINDOW_FLASH_NOTIFY_ENDPOINT`，脚本可以直接调用。
 - `/health` 接口会返回 relay 和 UI 扩展版本，便于诊断安装状态。
+- 支持中英文 manifest 与运行时提示本地化。
 
 ## 安装
 
