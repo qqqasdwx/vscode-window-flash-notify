@@ -11,5 +11,20 @@
   "Failed to install Window Flash Notify Relay: {message}": "Failed to install Window Flash Notify Relay: {message}",
   "Notification received": "Notification received",
   "{workspaceName} - Window Flash Notify": "{workspaceName} - Window Flash Notify",
-  "Focus VS Code": "Focus VS Code"
+  "Focus VS Code": "Focus VS Code",
+  "Wave audio": "Wave audio",
+  "Select Sound": "Select Sound",
+  "Select Custom Notification Sound": "Select Custom Notification Sound",
+  "Custom notification sound must be a local file.": "Custom notification sound must be a local file.",
+  "Custom notification sound must be a .wav file.": "Custom notification sound must be a .wav file.",
+  "Custom notification sound file is empty.": "Custom notification sound file is empty.",
+  "Custom notification sound file is too large. Choose a WAV file up to {maxSizeMb} MB.": "Custom notification sound file is too large. Choose a WAV file up to {maxSizeMb} MB.",
+  "Custom notification sound file is not a valid WAV file.": "Custom notification sound file is not a valid WAV file.",
+  "Custom notification sound selected: {name}": "Custom notification sound selected: {name}",
+  "Test Sound": "Test Sound",
+  "Failed to select custom notification sound: {message}": "Failed to select custom notification sound: {message}",
+  "No custom notification sound is configured.": "No custom notification sound is configured.",
+  "Custom notification sound cleared.": "Custom notification sound cleared.",
+  "Notification sounds require Windows.": "Notification sounds require Windows.",
+  "Notification sound test started.": "Notification sound test started."
 }

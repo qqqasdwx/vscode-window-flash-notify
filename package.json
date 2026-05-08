@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "%extension.description%",
-  "version": "0.2.25",
+  "version": "0.2.26",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -37,6 +37,9 @@
     "onUri",
     "onCommand:windowFlashNotify.health",
     "onCommand:windowFlashNotify.installRelay",
+    "onCommand:windowFlashNotify.selectSound",
+    "onCommand:windowFlashNotify.clearSound",
+    "onCommand:windowFlashNotify.testSound",
     "onCommand:windowFlashNotify.notify",
     "onCommand:windowFlashNotify.flashWindow",
     "onCommand:windowFlashNotify.focusWindow",
@@ -61,6 +64,18 @@
       {
         "command": "windowFlashNotify.installRelay",
         "title": "%command.installRelay.title%"
+      },
+      {
+        "command": "windowFlashNotify.selectSound",
+        "title": "%command.selectSound.title%"
+      },
+      {
+        "command": "windowFlashNotify.clearSound",
+        "title": "%command.clearSound.title%"
+      },
+      {
+        "command": "windowFlashNotify.testSound",
+        "title": "%command.testSound.title%"
       }
     ],
     "configuration": {
@@ -82,6 +97,12 @@
           "type": "boolean",
           "default": false,
           "description": "%configuration.soundEnabled.description%"
+        },
+        "windowFlashNotify.customSoundPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.customSoundPath.description%"
         },
         "windowFlashNotify.showToast": {
           "type": "boolean",

@@ -15,7 +15,7 @@ Common use cases:
 
 - Flash the matching VS Code taskbar button without interrupting your current focus.
 - Supports `flash`, `focus`, and `none` actions.
-- Optional Windows system sound and native toast notifications.
+- Optional Windows system sound, custom WAV notification sound, and native toast notifications.
 - Clicking a toast attempts to return to the originating VS Code window.
 - Supports VS Code Remote workflows through a workspace-side relay.
 - The relay injects `WINDOW_FLASH_NOTIFY_ENDPOINT` into VS Code integrated terminals.
@@ -92,6 +92,8 @@ curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}
 
 `toastTimeout: 0` leaves the toast expiration unset and lets Windows use its default behavior.
 
+Custom notification sounds are configured on the local Windows UI side. Run `Window Flash Notify: Select Notification Sound` and choose a `.wav` file; the extension copies it into extension storage. Requests with `sound: true`, or the `windowFlashNotify.soundEnabled` setting, will then prefer the custom sound and fall back to the Windows system sound if the file is unavailable.
+
 ## Request API
 
 The `POST /notify` body can be omitted. An omitted body is equivalent to `{}` and defaults to `flash`.
@@ -100,12 +102,12 @@ The `POST /notify` body can be omitted. An omitted body is equivalent to `{}` an
 | --- | --- | --- | --- |
 | `title` | `string` | `"<workspace> - Window Flash Notify"` | Windows toast title. |
 | `message` | `string` | `"Notification received"` | Notification body text. |
-| `type` | `"info" \| "warning" \| "error"` | `"info"` | Message level. When sound is enabled, this selects the Windows system sound. |
+| `type` | `"info" \| "warning" \| "error"` | `"info"` | Message level. When no custom sound is configured, this selects the Windows system sound. |
 | `action` | `"flash" \| "focus" \| "none"` | `"flash"` | Window action to run after receiving the request. |
 | `workspaceName` | `string` | Current VS Code workspace name | Window matching hint. Usually filled by the relay. |
 | `workspacePath` | `string` | First folder path in the current workspace | Window matching hint. Usually filled by the relay. |
 | `workspaceHints` | `string[]` | Generated from the current workspace | Additional window matching hints. Use only when overriding the default matching behavior. |
-| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | Play a Windows system sound. |
+| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | Play a Windows notification sound. A configured custom WAV file is preferred. |
 | `showToast` | `boolean` | `windowFlashNotify.showToast` | Show a Windows toast notification. |
 | `toastTimeout` | `number` | `windowFlashNotify.toastTimeout` | Toast expiration timeout in seconds. Set to `0` to leave expiration unset. |
 
@@ -134,7 +136,8 @@ UI extension:
 | --- | --- | --- |
 | `windowFlashNotify.flashUntilForeground` | `true` | Keep flashing the taskbar button until the VS Code window becomes foreground. |
 | `windowFlashNotify.flashCount` | `8` | Number of flashes to request when continuous flashing is disabled. |
-| `windowFlashNotify.soundEnabled` | `false` | Play a Windows system sound by default after receiving a request. |
+| `windowFlashNotify.soundEnabled` | `false` | Play a Windows notification sound by default after receiving a request. |
+| `windowFlashNotify.customSoundPath` | `""` | Optional local `.wav` file path. Prefer setting this through the Select Notification Sound command. |
 | `windowFlashNotify.showToast` | `false` | Show a Windows toast notification by default after receiving a request. |
 | `windowFlashNotify.toastTimeout` | `15` | Toast expiration timeout in seconds. Set to `0` to leave expiration unset. |
 | `windowFlashNotify.autoInstallRelay` | `true` | In remote windows, prompt to install or update the relay when it is missing or outdated. |
@@ -155,6 +158,9 @@ UI extension:
 - `Window Flash Notify: Test UI Flash`: send one UI-side test flash.
 - `Window Flash Notify: Diagnose Windows Targeting`: print visible VS Code windows, process chains, and the selected target to the output panel.
 - `Window Flash Notify: Install Relay in Remote Window`: manually check and install or update the relay in the current remote window.
+- `Window Flash Notify: Select Notification Sound`: choose a local `.wav` file and copy it into extension storage.
+- `Window Flash Notify: Clear Notification Sound`: clear the configured custom notification sound.
+- `Window Flash Notify: Test Notification Sound`: play the currently configured notification sound once.
 
 Relay extension:
 

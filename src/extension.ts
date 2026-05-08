@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import * as vscode from "vscode";
 
 type NotifyType = "info" | "warning" | "error";
@@ -49,6 +49,8 @@ const minimumRelayVersion = "0.2.17";
 const focusProtocolScheme = "windowflashnotify";
 const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
+const customSoundFileName = "notification.wav";
+const customSoundMaxBytes = 10 * 1024 * 1024;
 
 let extensionId = defaultExtensionId;
 let extensionVersion = "unknown";
@@ -79,6 +81,21 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotify.installRelay", async () => {
       await promptInstallRelay(context, true);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.selectSound", async () => {
+      await selectNotificationSound(context);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.clearSound", async () => {
+      await clearNotificationSound(context);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.testSound", async () => {
+      await testNotificationSound();
     })
   );
   context.subscriptions.push(
@@ -405,8 +422,157 @@ function playNotificationSound(type: NotifyType): void {
 
   schedulePowerShellDetached("sound", getSoundPowerShell(), {
     ...process.env,
-    WINDOW_FLASH_NOTIFY_TYPE: type
+    WINDOW_FLASH_NOTIFY_TYPE: type,
+    WINDOW_FLASH_NOTIFY_SOUND_PATH: getConfiguredCustomSoundPath() || ""
   });
+}
+
+async function selectNotificationSound(context: vscode.ExtensionContext): Promise<void> {
+  const selected = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: false,
+    filters: {
+      [vscode.l10n.t("Wave audio")]: ["wav"]
+    },
+    openLabel: vscode.l10n.t("Select Sound"),
+    title: vscode.l10n.t("Select Custom Notification Sound")
+  });
+
+  const soundUri = selected?.[0];
+  if (!soundUri) {
+    return;
+  }
+
+  try {
+    if (soundUri.scheme !== "file") {
+      throw new Error(vscode.l10n.t("Custom notification sound must be a local file."));
+    }
+
+    const sourcePath = soundUri.fsPath;
+    validateCustomSoundFile(sourcePath);
+
+    const targetPath = getManagedCustomSoundPath(context);
+    mkdirSync(getCustomSoundStorageDir(context), { recursive: true });
+    if (resolve(sourcePath) !== resolve(targetPath)) {
+      copyFileSync(sourcePath, targetPath);
+    }
+    await getConfig().update("customSoundPath", targetPath, vscode.ConfigurationTarget.Global);
+
+    const testLabel = vscode.l10n.t("Test Sound");
+    const choice = await vscode.window.showInformationMessage(
+      vscode.l10n.t("Custom notification sound selected: {name}", { name: basename(sourcePath) }),
+      testLabel
+    );
+    if (choice === testLabel) {
+      playNotificationSound("info");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Custom sound selection failed: ${message}`);
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Failed to select custom notification sound: {message}", { message })
+    );
+  }
+}
+
+async function clearNotificationSound(context: vscode.ExtensionContext): Promise<void> {
+  const currentPath = getCustomSoundConfigPath();
+  if (!currentPath) {
+    vscode.window.showInformationMessage(vscode.l10n.t("No custom notification sound is configured."));
+    return;
+  }
+
+  await getConfig().update("customSoundPath", "", vscode.ConfigurationTarget.Global);
+  removeManagedCustomSoundFile(context, currentPath);
+  vscode.window.showInformationMessage(vscode.l10n.t("Custom notification sound cleared."));
+}
+
+async function testNotificationSound(): Promise<void> {
+  if (process.platform !== "win32") {
+    vscode.window.showWarningMessage(vscode.l10n.t("Notification sounds require Windows."));
+    return;
+  }
+
+  playNotificationSound("info");
+  vscode.window.showInformationMessage(vscode.l10n.t("Notification sound test started."));
+}
+
+function validateCustomSoundFile(filePath: string): void {
+  if (extname(filePath).toLowerCase() !== ".wav") {
+    throw new Error(vscode.l10n.t("Custom notification sound must be a .wav file."));
+  }
+
+  const stats = statSync(filePath);
+  if (!stats.isFile()) {
+    throw new Error(vscode.l10n.t("Custom notification sound must be a local file."));
+  }
+  if (stats.size <= 0) {
+    throw new Error(vscode.l10n.t("Custom notification sound file is empty."));
+  }
+  if (stats.size > customSoundMaxBytes) {
+    throw new Error(vscode.l10n.t(
+      "Custom notification sound file is too large. Choose a WAV file up to {maxSizeMb} MB.",
+      { maxSizeMb: customSoundMaxBytes / 1024 / 1024 }
+    ));
+  }
+
+  const header = readFileSync(filePath).subarray(0, 12);
+  if (
+    header.length < 12 ||
+    header.subarray(0, 4).toString("ascii") !== "RIFF" ||
+    header.subarray(8, 12).toString("ascii") !== "WAVE"
+  ) {
+    throw new Error(vscode.l10n.t("Custom notification sound file is not a valid WAV file."));
+  }
+}
+
+function getConfiguredCustomSoundPath(): string | undefined {
+  const customSoundPath = getCustomSoundConfigPath();
+  if (!customSoundPath) {
+    return undefined;
+  }
+
+  try {
+    if (
+      extname(customSoundPath).toLowerCase() === ".wav" &&
+      existsSync(customSoundPath) &&
+      statSync(customSoundPath).isFile()
+    ) {
+      return customSoundPath;
+    }
+  } catch {
+  }
+
+  output.appendLine(`Custom sound path is unavailable; falling back to system sound: ${customSoundPath}`);
+  return undefined;
+}
+
+function getCustomSoundConfigPath(): string {
+  return getConfig().get<string>("customSoundPath", "").trim();
+}
+
+function getManagedCustomSoundPath(context: vscode.ExtensionContext): string {
+  return join(getCustomSoundStorageDir(context), customSoundFileName);
+}
+
+function getCustomSoundStorageDir(context: vscode.ExtensionContext): string {
+  return join(context.globalStorageUri.fsPath, "sounds");
+}
+
+function removeManagedCustomSoundFile(context: vscode.ExtensionContext, filePath: string): void {
+  if (resolve(filePath) !== resolve(getManagedCustomSoundPath(context))) {
+    return;
+  }
+
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Failed to remove managed custom sound: ${message}`);
+  }
 }
 
 async function showToastNotification(
@@ -596,16 +762,31 @@ function getSoundPowerShell(): string {
   return `
 $ErrorActionPreference = 'Stop'
 $type = $env:WINDOW_FLASH_NOTIFY_TYPE
+$customSoundPath = $env:WINDOW_FLASH_NOTIFY_SOUND_PATH
 
-if ($type -eq 'error') {
-  [System.Media.SystemSounds]::Hand.Play()
-} elseif ($type -eq 'warning') {
-  [System.Media.SystemSounds]::Exclamation.Play()
-} else {
-  [System.Media.SystemSounds]::Asterisk.Play()
+function Play-WindowFlashSystemSound([string]$notificationType) {
+  if ($notificationType -eq 'error') {
+    [System.Media.SystemSounds]::Hand.Play()
+  } elseif ($notificationType -eq 'warning') {
+    [System.Media.SystemSounds]::Exclamation.Play()
+  } else {
+    [System.Media.SystemSounds]::Asterisk.Play()
+  }
+
+  Start-Sleep -Milliseconds 700
 }
 
-Start-Sleep -Milliseconds 700
+if (-not [string]::IsNullOrWhiteSpace($customSoundPath) -and (Test-Path -LiteralPath $customSoundPath -PathType Leaf)) {
+  try {
+    $player = [System.Media.SoundPlayer]::new($customSoundPath)
+    $player.Load()
+    $player.PlaySync()
+    exit 0
+  } catch {
+  }
+}
+
+Play-WindowFlashSystemSound $type
 `;
 }
 

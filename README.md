@@ -15,7 +15,7 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 
 - 闪烁匹配的 VS Code 窗口任务栏按钮，默认不打断当前工作。
 - 支持 `flash`、`focus`、`none` 三种动作。
-- 支持 Windows 系统提示音和原生 toast 通知。
+- 支持 Windows 系统提示音、自定义 WAV 通知声音和原生 toast 通知。
 - 点击 toast 后会尝试回到发出通知的 VS Code 窗口。
 - 支持 VS Code Remote 场景，由 workspace 侧 relay 接收脚本请求，再转发到本地 UI 侧扩展。
 - relay 会向 VS Code 集成终端注入 `WINDOW_FLASH_NOTIFY_ENDPOINT`，脚本可以直接调用。
@@ -92,6 +92,8 @@ curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}
 
 `toastTimeout: 0` 表示不设置 toast 过期时间，由 Windows 使用默认行为。
 
+自定义通知声音需要在本地 Windows UI 端配置。运行命令 `Window Flash Notify: 选择通知声音`，选择一个 `.wav` 文件后，扩展会复制到自己的存储目录。之后请求中传 `sound: true`，或开启 `windowFlashNotify.soundEnabled`，都会优先播放该自定义声音；如果文件不可用，会回退到 Windows 系统提示音。
+
 ## 请求接口
 
 `POST /notify` 的请求体可以省略。省略时等价于 `{}`，默认执行 `flash`。
@@ -100,12 +102,12 @@ curl -fsS -X POST "${WINDOW_FLASH_NOTIFY_ENDPOINT:-http://127.0.0.1:7531/notify}
 | --- | --- | --- | --- |
 | `title` | `string` | `"<workspace> - Window Flash Notify"` | Windows toast 标题。 |
 | `message` | `string` | `"Notification received"` | 通知正文。 |
-| `type` | `"info" \| "warning" \| "error"` | `"info"` | 消息级别。声音开启时会选择对应的 Windows 系统提示音。 |
+| `type` | `"info" \| "warning" \| "error"` | `"info"` | 消息级别。未配置自定义声音时，会选择对应的 Windows 系统提示音。 |
 | `action` | `"flash" \| "focus" \| "none"` | `"flash"` | 收到请求后的窗口动作。 |
 | `workspaceName` | `string` | 当前 VS Code workspace 名称 | 窗口匹配提示。通常不需要手动传入，relay 会自动补齐。 |
 | `workspacePath` | `string` | 当前 workspace 第一个 folder 路径 | 窗口匹配提示。通常不需要手动传入，relay 会自动补齐。 |
 | `workspaceHints` | `string[]` | 根据当前 workspace 自动生成 | 额外窗口匹配提示。仅在需要覆盖默认匹配行为时使用。 |
-| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | 是否播放 Windows 系统提示音。 |
+| `sound` | `boolean` | `windowFlashNotify.soundEnabled` | 是否播放 Windows 通知声音。配置自定义 WAV 后优先播放自定义声音。 |
 | `showToast` | `boolean` | `windowFlashNotify.showToast` | 是否显示 Windows toast 通知。 |
 | `toastTimeout` | `number` | `windowFlashNotify.toastTimeout` | Toast 过期时间，单位为秒。设为 `0` 表示不设置过期时间。 |
 
@@ -134,7 +136,8 @@ UI 端扩展：
 | --- | --- | --- |
 | `windowFlashNotify.flashUntilForeground` | `true` | 持续闪烁任务栏按钮，直到 VS Code 窗口回到前台。 |
 | `windowFlashNotify.flashCount` | `8` | 关闭持续闪烁时请求的闪烁次数。 |
-| `windowFlashNotify.soundEnabled` | `false` | 收到请求后默认播放 Windows 系统提示音。 |
+| `windowFlashNotify.soundEnabled` | `false` | 收到请求后默认播放 Windows 通知声音。 |
+| `windowFlashNotify.customSoundPath` | `""` | 可选本地 `.wav` 文件路径。建议通过“选择通知声音”命令设置。 |
 | `windowFlashNotify.showToast` | `false` | 收到请求后默认显示 Windows toast 通知。 |
 | `windowFlashNotify.toastTimeout` | `15` | Toast 过期时间，单位为秒；设为 `0` 表示不设置过期时间。 |
 | `windowFlashNotify.autoInstallRelay` | `true` | 在远端窗口中检测 relay，缺失或过旧时提示安装/更新。 |
@@ -155,6 +158,9 @@ UI 端扩展：
 - `Window Flash Notify: 测试 UI 闪烁`：发送一次 UI 端测试闪烁。
 - `Window Flash Notify: 诊断 Windows 窗口定位`：在输出面板中打印可见 VS Code 窗口、进程链和匹配结果。
 - `Window Flash Notify: 在远程窗口安装 Relay`：手动检查并安装/更新当前远端窗口中的 relay。
+- `Window Flash Notify: 选择通知声音`：选择本地 `.wav` 文件并复制到扩展存储中。
+- `Window Flash Notify: 清除通知声音`：清除当前自定义通知声音配置。
+- `Window Flash Notify: 测试通知声音`：播放一次当前配置的通知声音。
 
 Relay 扩展：
 

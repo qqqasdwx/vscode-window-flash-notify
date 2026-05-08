@@ -11,5 +11,20 @@
   "Failed to install Window Flash Notify Relay: {message}": "安装 Window Flash Notify Relay 失败：{message}",
   "Notification received": "收到通知",
   "{workspaceName} - Window Flash Notify": "{workspaceName} - Window Flash Notify",
-  "Focus VS Code": "聚焦 VS Code"
+  "Focus VS Code": "聚焦 VS Code",
+  "Wave audio": "WAV 音频",
+  "Select Sound": "选择声音",
+  "Select Custom Notification Sound": "选择自定义通知声音",
+  "Custom notification sound must be a local file.": "自定义通知声音必须是本地文件。",
+  "Custom notification sound must be a .wav file.": "自定义通知声音必须是 .wav 文件。",
+  "Custom notification sound file is empty.": "自定义通知声音文件为空。",
+  "Custom notification sound file is too large. Choose a WAV file up to {maxSizeMb} MB.": "自定义通知声音文件过大。请选择不超过 {maxSizeMb} MB 的 WAV 文件。",
+  "Custom notification sound file is not a valid WAV file.": "自定义通知声音文件不是有效的 WAV 文件。",
+  "Custom notification sound selected: {name}": "已选择自定义通知声音：{name}",
+  "Test Sound": "测试声音",
+  "Failed to select custom notification sound: {message}": "选择自定义通知声音失败：{message}",
+  "No custom notification sound is configured.": "尚未配置自定义通知声音。",
+  "Custom notification sound cleared.": "已清除自定义通知声音。",
+  "Notification sounds require Windows.": "通知声音需要 Windows 环境。",
+  "Notification sound test started.": "已开始测试通知声音。"
 }

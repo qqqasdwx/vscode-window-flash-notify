@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.2.26
+
+- Add custom WAV notification sounds for the UI extension.
+- Add commands to select, clear, and test the configured notification sound.
+- Play the configured custom sound when notification sound is enabled, falling
+  back to the Windows system sound if the custom file is unavailable.
+
 ## 0.2.25
 
 - Add runtime localization bundles for UI and relay extension messages.
