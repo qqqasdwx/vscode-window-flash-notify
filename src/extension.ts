@@ -745,6 +745,7 @@ function getWindowActionEnv(
   const config = getConfig();
   const flashUntilForeground = config.get<boolean>("flashUntilForeground", true);
   const flashCount = config.get<number>("flashCount", 8);
+  const useProcessChainTieBreaker = config.get<boolean>("useProcessChainTieBreaker", false);
 
   return {
     ...process.env,
@@ -754,7 +755,8 @@ function getWindowActionEnv(
     WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS: workspaceHints.join("\n"),
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName || "Visual Studio Code",
     WINDOW_FLASH_NOTIFY_UNTIL_FOREGROUND: flashUntilForeground ? "1" : "0",
-    WINDOW_FLASH_NOTIFY_COUNT: String(flashCount)
+    WINDOW_FLASH_NOTIFY_COUNT: String(flashCount),
+    WINDOW_FLASH_NOTIFY_USE_PROCESS_CHAIN: useProcessChainTieBreaker ? "1" : "0"
   };
 }
 
@@ -919,10 +921,7 @@ $env:WINDOW_FLASH_NOTIFY_PRODUCT = 'Visual Studio Code'
 
 ${getWindowLookupPowerShell()}
 
-$selection = Select-WindowFlashFastStrongTargets
-if ($null -eq $selection) {
-  $selection = Select-WindowFlashTargets
-}
+$selection = Select-WindowFlashTargets
 foreach ($target in @($selection.Targets)) {
   $hwnd = [System.IntPtr]::new([int64]$target.Hwnd)
   $showCommand = Get-WindowFlashShowCommand $hwnd $true
@@ -969,6 +968,7 @@ $ErrorActionPreference = 'Stop'
 $workspace = $env:WINDOW_FLASH_NOTIFY_WORKSPACE
 $workspaceHintsRaw = $env:WINDOW_FLASH_NOTIFY_WORKSPACE_HINTS
 $product = $env:WINDOW_FLASH_NOTIFY_PRODUCT
+$useProcessChainTieBreaker = $env:WINDOW_FLASH_NOTIFY_USE_PROCESS_CHAIN -eq '1'
 $targetProcessId = 0
 if ($env:WINDOW_FLASH_NOTIFY_TARGET_PID) {
   [void][int]::TryParse($env:WINDOW_FLASH_NOTIFY_TARGET_PID, [ref]$targetProcessId)
@@ -1337,7 +1337,10 @@ function Get-WindowFlashBasicCodeWindows {
       Title = $title
       ProcessId = [int]$windowProcessId
       ProcessName = $processName
+      ProcessMatchScore = 0
+      WorkspaceMatch = $workspaceMatchScore -gt 0
       WorkspaceMatchScore = $workspaceMatchScore
+      Chain = @()
     })
 
     return $true
@@ -1347,112 +1350,78 @@ function Get-WindowFlashBasicCodeWindows {
   return $windows.ToArray()
 }
 
-function Select-WindowFlashFastStrongTargets {
-  if ($workspaceHints.Count -eq 0) {
+function Add-WindowFlashProcessScores([object[]]$candidateWindows) {
+  if (-not $useProcessChainTieBreaker -or $null -eq $candidateWindows -or $candidateWindows.Count -eq 0) {
+    return @($candidateWindows)
+  }
+
+  $targetChainIds = @(Get-WindowFlashProcessChainIds $targetProcessId)
+  foreach ($window in @($candidateWindows)) {
+    $chain = @(Get-WindowFlashProcessChain ([int]$window.ProcessId))
+    $chainIds = @($chain | ForEach-Object { [int]$_.ProcessId })
+    $score = Get-WindowFlashChainScore -candidateChainIds $chainIds -targetChainIds $targetChainIds
+    $window | Add-Member -NotePropertyName ProcessMatchScore -NotePropertyValue $score -Force
+    $window | Add-Member -NotePropertyName Chain -NotePropertyValue @($chain) -Force
+  }
+
+  return @($candidateWindows)
+}
+
+function Resolve-WindowFlashProcessTieBreak([object[]]$matches, [object[]]$windows, [string]$source, [string]$reason) {
+  if (-not $useProcessChainTieBreaker) {
     return $null
   }
 
-  $windows = @(Get-WindowFlashBasicCodeWindows)
-  $strongHintMatches = @($windows | Where-Object { [int]$_.WorkspaceMatchScore -ge 50000 } | Sort-Object -Property WorkspaceMatchScore -Descending)
-  if ($strongHintMatches.Count -eq 0) {
+  $scoredMatches = @(Add-WindowFlashProcessScores $matches)
+  $processTieBreaks = @($scoredMatches | Where-Object { [int]$_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
+  if ($processTieBreaks.Count -eq 0) {
     return $null
   }
 
-  $bestHintScore = [int]$strongHintMatches[0].WorkspaceMatchScore
-  $bestHintMatches = @($strongHintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
-  if ($bestHintMatches.Count -ne 1) {
+  $bestProcessScore = [int]$processTieBreaks[0].ProcessMatchScore
+  $bestProcessMatches = @($processTieBreaks | Where-Object { [int]$_.ProcessMatchScore -eq $bestProcessScore })
+  if ($bestProcessMatches.Count -ne 1) {
     return $null
   }
 
   return [pscustomobject]@{
-    Source = 'fastStrongWorkspaceHint'
-    Targets = @($bestHintMatches)
+    Source = $source
+    Targets = @($bestProcessMatches)
     Windows = @($windows)
-    Reason = "Unique strong workspace hint match with score $bestHintScore."
+    Reason = "$reason Process-chain tie-break selected score $bestProcessScore."
   }
 }
 
 function Select-WindowFlashTargets {
-  $windows = @(Get-WindowFlashCodeWindows)
+  $windows = @(Get-WindowFlashBasicCodeWindows)
   if ($windows.Count -eq 0) {
     throw "No visible VS Code window was found"
   }
 
   if ($workspaceHints.Count -gt 0) {
-    $strongHintMatches = @($windows | Where-Object { [int]$_.WorkspaceMatchScore -ge 50000 } | Sort-Object -Property WorkspaceMatchScore, ProcessMatchScore -Descending)
-    if ($strongHintMatches.Count -gt 0) {
-      $bestHintScore = [int]$strongHintMatches[0].WorkspaceMatchScore
-      $bestHintMatches = @($strongHintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
-      if ($bestHintMatches.Count -eq 1) {
-        return [pscustomobject]@{
-          Source = 'strongWorkspaceHint'
-          Targets = @($bestHintMatches)
-          Windows = @($windows)
-          Reason = "Unique strong workspace hint match with score $bestHintScore."
-        }
-      }
-
-      $processTieBreaks = @($bestHintMatches | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
-      if ($processTieBreaks.Count -gt 0) {
-        $bestProcessScore = [int]$processTieBreaks[0].ProcessMatchScore
-        $bestProcessMatches = @($processTieBreaks | Where-Object { [int]$_.ProcessMatchScore -eq $bestProcessScore })
-        if ($bestProcessMatches.Count -eq 1) {
-          return [pscustomobject]@{
-            Source = 'strongWorkspaceHintProcessTieBreak'
-            Targets = @($bestProcessMatches)
-            Windows = @($windows)
-            Reason = "Strong workspace hint match was tied at score $bestHintScore; process-chain tie-break selected score $bestProcessScore."
-          }
-        }
-      }
-    }
-  }
-
-  $processMatches = @($windows | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
-  if ($processMatches.Count -gt 0) {
-    $bestScore = [int]$processMatches[0].ProcessMatchScore
-    $bestMatches = @($processMatches | Where-Object { [int]$_.ProcessMatchScore -eq $bestScore })
-    if ($bestMatches.Count -eq 1) {
-      return [pscustomobject]@{
-        Source = 'processChain'
-        Targets = @($bestMatches)
-        Windows = @($windows)
-        Reason = "Unique process-chain match with score $bestScore."
-      }
-    }
-  }
-
-  if ($workspaceHints.Count -gt 0) {
-    $hintMatches = @($windows | Where-Object { $_.WorkspaceMatch } | Sort-Object -Property WorkspaceMatchScore, ProcessMatchScore -Descending)
+    $hintMatches = @($windows | Where-Object { [int]$_.WorkspaceMatchScore -gt 0 } | Sort-Object -Property WorkspaceMatchScore -Descending)
     if ($hintMatches.Count -gt 0) {
       $bestHintScore = [int]$hintMatches[0].WorkspaceMatchScore
       $bestHintMatches = @($hintMatches | Where-Object { [int]$_.WorkspaceMatchScore -eq $bestHintScore })
+      $hintKind = if ($bestHintScore -ge 50000) { 'strongTitleHint' } elseif ($bestHintScore -ge 20000) { 'pathTitleHint' } else { 'titleHint' }
       if ($bestHintMatches.Count -eq 1) {
         return [pscustomobject]@{
-          Source = 'workspaceHintsFallback'
+          Source = $hintKind
           Targets = @($bestHintMatches)
           Windows = @($windows)
-          Reason = "Process-chain match was unavailable or ambiguous; unique workspace hint score $bestHintScore matched."
+          Reason = "Unique title hint match with score $bestHintScore."
         }
       }
 
-      $processTieBreaks = @($bestHintMatches | Where-Object { $_.ProcessMatchScore -gt 0 } | Sort-Object -Property ProcessMatchScore -Descending)
-      if ($processTieBreaks.Count -gt 0) {
-        $bestProcessScore = [int]$processTieBreaks[0].ProcessMatchScore
-        $bestProcessMatches = @($processTieBreaks | Where-Object { [int]$_.ProcessMatchScore -eq $bestProcessScore })
-        if ($bestProcessMatches.Count -eq 1) {
-          return [pscustomobject]@{
-            Source = 'workspaceHintsProcessTieBreak'
-            Targets = @($bestProcessMatches)
-            Windows = @($windows)
-            Reason = "Workspace hint match was tied at score $bestHintScore; process-chain tie-break selected score $bestProcessScore."
-          }
-        }
+      $processTieBreakSource = "$($hintKind)ProcessTieBreak"
+      $tieBreak = Resolve-WindowFlashProcessTieBreak -matches $bestHintMatches -windows $windows -source $processTieBreakSource -reason "Title hint match was tied at score $bestHintScore."
+      if ($null -ne $tieBreak) {
+        return $tieBreak
       }
     }
   }
 
-  if ($windows.Count -eq 1 -and $processMatches.Count -eq 0 -and $workspaceHints.Count -eq 0) {
+  if ($windows.Count -eq 1 -and $workspaceHints.Count -eq 0) {
     return [pscustomobject]@{
       Source = 'singleVisibleWindowFallback'
       Targets = @($windows)
@@ -1463,12 +1432,11 @@ function Select-WindowFlashTargets {
 
   $titleText = [string]::Join('; ', @($windows | ForEach-Object { $_.Title }))
   $hintText = [string]::Join(', ', $workspaceHints)
-  if ($processMatches.Count -gt 1) {
-    $bestScore = [int]$processMatches[0].ProcessMatchScore
-    throw "Process-chain match was ambiguous at score $bestScore and workspace hints did not resolve it. Hints: $hintText. Visible VS Code title(s): $titleText"
+  if ($workspaceHints.Count -gt 0) {
+    throw "Window title hints did not uniquely identify a VS Code window. Process-chain tie-breaker enabled: $useProcessChainTieBreaker. Hints: $hintText. Visible VS Code title(s): $titleText"
   }
 
-  throw "No VS Code window matched process chain or workspace hint(s): $hintText. Visible VS Code title(s): $titleText"
+  throw "No window title hints were available and multiple VS Code windows are visible. Visible VS Code title(s): $titleText"
 }
 `;
 }
@@ -1547,13 +1515,22 @@ if ($null -ne $selection) {
   }
 }
 
+$targetProcessChain = @()
+$processWindows = @()
+if ($useProcessChainTieBreaker) {
+  $targetProcessChain = @(Get-WindowFlashProcessChain $targetProcessId)
+  $processWindows = @(Get-WindowFlashCodeWindows)
+}
+
 $result = [pscustomobject]@{
   TargetProcessId = $targetProcessId
-  TargetProcessChain = @(Get-WindowFlashProcessChain $targetProcessId)
+  ProcessChainTieBreakerEnabled = $useProcessChainTieBreaker
+  TargetProcessChain = $targetProcessChain
   WorkspaceHints = @($workspaceHints)
   Selection = $selectionSummary
   SelectionError = $selectionError
-  Windows = @(Get-WindowFlashCodeWindows)
+  Windows = @(Get-WindowFlashBasicCodeWindows)
+  ProcessWindows = $processWindows
 }
 
 $result | ConvertTo-Json -Depth 8
@@ -1763,7 +1740,8 @@ function getWorkspaceMatchHints(
   workspacePath?: string,
   providedHints: string[] = []
 ): string[] {
-  return buildWorkspaceMatchHints(workspaceName, workspacePath, providedHints, true);
+  const includeCurrentWorkspace = !workspaceName && !workspacePath && providedHints.length === 0;
+  return buildWorkspaceMatchHints(workspaceName, workspacePath, providedHints, includeCurrentWorkspace);
 }
 
 function getWorkspaceMatchHintsFromUri(

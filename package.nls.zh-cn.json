@@ -13,5 +13,6 @@
   "configuration.customSoundPath.description": "可选的本地 Windows .wav 通知声音文件路径。建议使用“选择通知声音”命令将 WAV 文件复制到扩展存储中。",
   "configuration.showToast.description": "同时显示 Windows toast 通知。点击通知后，会通过 VS Code URI 尝试聚焦原始 VS Code 窗口。",
   "configuration.toastTimeout.description": "Windows toast 通知过期时间，单位为秒。设为 0 时不设置过期时间。",
-  "configuration.autoInstallRelay.description": "当 UI 扩展运行在远程窗口中时，提示安装或更新 workspace 侧 relay 扩展。"
+  "configuration.autoInstallRelay.description": "当 UI 扩展运行在远程窗口中时，提示安装或更新 workspace 侧 relay 扩展。",
+  "configuration.useProcessChainTieBreaker.description": "仅在多个 VS Code 窗口命中同一个标题提示时，使用 Windows 进程链检查作为辅助决胜。默认关闭，因为多数 VS Code 窗口共享同一个主进程，通常帮助有限，并会增加额外的 WMI/CIM 查询开销。"
 }

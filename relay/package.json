@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify-relay",
   "displayName": "Window Flash Notify Relay",
   "description": "%extension.description%",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",

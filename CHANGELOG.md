@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.2.27
+
+- Prefer relay-generated title hints for Windows target selection and keep
+  process-chain matching out of the default path.
+- Add `windowFlashNotify.useProcessChainTieBreaker`, disabled by default, to use
+  process-chain inspection only when equal title-hint matches need a tie-break.
+- Add remote authority, workspace file, and active or visible editor URI data to
+  relay-generated window matching hints.
+- Update diagnostics and documentation to describe the process-chain overhead
+  and its limited use case.
+
 ## 0.2.26
 
 - Add custom WAV notification sounds for the UI extension.

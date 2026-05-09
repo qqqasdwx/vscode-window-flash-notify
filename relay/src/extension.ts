@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { basename, join } from "node:path";
 import * as vscode from "vscode";
 
@@ -679,26 +680,71 @@ function getWorkspaceMatchHints(
     addHint(value);
     addHint(stripRemoteSuffix(value));
   };
+  const addPathHints = (value: string | undefined): void => {
+    addHint(value);
+    addHint(basenameFromAnyPath(value));
+  };
+  const addRemoteAuthorityHints = (authority: string | undefined): void => {
+    const decoded = decodeUriPart(authority);
+    if (!decoded) {
+      return;
+    }
+
+    addHint(decoded);
+    const plusIndex = decoded.indexOf("+");
+    const remoteTarget = plusIndex >= 0 ? decoded.slice(plusIndex + 1) : decoded;
+    addHint(remoteTarget);
+
+    if (vscode.env.remoteName === "ssh-remote") {
+      addHint(`[SSH: ${remoteTarget}]`);
+      addHint(`SSH: ${remoteTarget}`);
+    } else if (vscode.env.remoteName === "wsl") {
+      addHint(`[WSL: ${remoteTarget}]`);
+      addHint(`WSL: ${remoteTarget}`);
+    } else if (vscode.env.remoteName && vscode.env.remoteName !== remoteTarget) {
+      addHint(`[${vscode.env.remoteName}: ${remoteTarget}]`);
+      addHint(`${vscode.env.remoteName}: ${remoteTarget}`);
+    }
+  };
+  const addUriHints = (uri: vscode.Uri | undefined): void => {
+    if (!uri) {
+      return;
+    }
+
+    addRemoteAuthorityHints(uri.authority);
+    addPathHints(uri.fsPath);
+    addPathHints(uri.path);
+  };
 
   for (const hint of providedHints) {
     addNameVariants(hint);
-    addHint(basenameFromAnyPath(hint));
+    addPathHints(hint);
   }
 
   addNameVariants(workspaceName);
   addNameVariants(getWorkspaceName());
-  addHint(workspacePath);
-  addHint(basenameFromAnyPath(workspacePath));
+  addPathHints(workspacePath);
+  addUriHints(vscode.workspace.workspaceFile);
+
+  if (vscode.env.remoteName) {
+    addRemoteAuthorityHints(hostname());
+  }
 
   for (const folder of vscode.workspace.workspaceFolders || []) {
     addNameVariants(folder.name);
-    addHint(folder.uri.fsPath);
-    addHint(folder.uri.path);
-    addHint(basenameFromAnyPath(folder.uri.fsPath));
-    addHint(basenameFromAnyPath(folder.uri.path));
+    addUriHints(folder.uri);
+  }
+
+  addEditorHints(vscode.window.activeTextEditor);
+  for (const editor of vscode.window.visibleTextEditors) {
+    addEditorHints(editor);
   }
 
   return hints;
+
+  function addEditorHints(editor: vscode.TextEditor | undefined): void {
+    addUriHints(editor?.document.uri);
+  }
 }
 
 function stripRemoteSuffix(value: string | undefined): string | undefined {
@@ -707,6 +753,19 @@ function stripRemoteSuffix(value: string | undefined): string | undefined {
 
 function basenameFromAnyPath(value: string | undefined): string | undefined {
   return value?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+}
+
+function decodeUriPart(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
 }
 
 function isGenericWorkspaceHint(value: string): boolean {

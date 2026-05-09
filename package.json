@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "%extension.description%",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -120,6 +120,11 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.autoInstallRelay.description%"
+        },
+        "windowFlashNotify.useProcessChainTieBreaker": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.useProcessChainTieBreaker.description%"
         }
       }
     }

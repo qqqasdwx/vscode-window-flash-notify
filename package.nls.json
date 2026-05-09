@@ -13,5 +13,6 @@
   "configuration.customSoundPath.description": "Optional local Windows .wav file path for notification sounds. Use the Select Notification Sound command to copy a WAV file into extension storage.",
   "configuration.showToast.description": "Also show a Windows toast notification. Clicking it attempts to focus the original VS Code window through a VS Code URI.",
   "configuration.toastTimeout.description": "Windows toast expiration timeout in seconds. Set to 0 to leave the toast expiration unset.",
-  "configuration.autoInstallRelay.description": "Prompt to install or update the workspace-side relay extension when this UI extension is running in a remote window."
+  "configuration.autoInstallRelay.description": "Prompt to install or update the workspace-side relay extension when this UI extension is running in a remote window.",
+  "configuration.useProcessChainTieBreaker.description": "Use Windows process-chain inspection only as a tie-breaker when multiple VS Code windows match the same title hint. Disabled by default because most VS Code windows share the same main process, so this is often not useful and adds extra WMI/CIM lookup overhead."
 }
