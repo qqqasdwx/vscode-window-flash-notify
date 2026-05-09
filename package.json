@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "%extension.description%",
-  "version": "0.2.27",
+  "version": "0.2.28",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -37,6 +37,7 @@
     "onUri",
     "onCommand:windowFlashNotify.health",
     "onCommand:windowFlashNotify.installRelay",
+    "onCommand:windowFlashNotify.enablePreciseWindowMatching",
     "onCommand:windowFlashNotify.selectSound",
     "onCommand:windowFlashNotify.clearSound",
     "onCommand:windowFlashNotify.testSound",
@@ -64,6 +65,10 @@
       {
         "command": "windowFlashNotify.installRelay",
         "title": "%command.installRelay.title%"
+      },
+      {
+        "command": "windowFlashNotify.enablePreciseWindowMatching",
+        "title": "%command.enablePreciseWindowMatching.title%"
       },
       {
         "command": "windowFlashNotify.selectSound",
@@ -125,6 +130,11 @@
           "type": "boolean",
           "default": false,
           "description": "%configuration.useProcessChainTieBreaker.description%"
+        },
+        "windowFlashNotify.promptWindowTitleId": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.promptWindowTitleId.description%"
         }
       }
     }

@@ -13,7 +13,7 @@ qqqasdwx.vscode-window-flash-notify-relay
 
 Use it in Remote SSH, WSL, Dev Containers, Vagrant, or local workspaces where scripts need to send completion notifications.
 
-The relay automatically converts the current workspace, remote identity, and editor context into window title-matching hints so the UI side can flash only the originating VS Code window.
+The relay automatically generates a short ID for the current window and exposes it through the `${windowFlashNotifyId}` title variable. After precise matching is enabled in the UI extension, the VS Code title shows an ID such as `[WFN:3A7F]`, and the UI side uses it as the highest-priority match for the originating window. The relay also converts workspace, remote identity, and editor context into fallback title-matching hints.
 
 ## Quick Test
 

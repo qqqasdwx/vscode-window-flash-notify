@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.2.28
+
+- Add precise per-window matching through a relay-generated `[WFN:xxxx]`
+  window title ID.
+- Register the `${windowFlashNotifyId}` window title variable and add a UI
+  command/prompt to insert it into the local `window.title` setting.
+- Include the relay window title ID as the highest-priority matching hint for
+  empty Remote SSH and other windows without workspace/editor title hints.
+- Report UI and relay window title variable status from `/health`.
+
 ## 0.2.27
 
 - Prefer relay-generated title hints for Windows target selection and keep

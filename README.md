@@ -17,6 +17,7 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 - 支持 `flash`、`focus`、`none` 三种动作。
 - 支持 Windows 系统提示音、自定义 WAV 通知声音和原生 toast 通知。
 - 点击 toast 后会尝试回到发出通知的 VS Code 窗口。
+- 支持通过 `${windowFlashNotifyId}` 窗口标题变量进行精准单窗口匹配。
 - 支持 VS Code Remote 场景，由 workspace 侧 relay 接收脚本请求，再转发到本地 UI 侧扩展。
 - relay 会向 VS Code 集成终端注入 `WINDOW_FLASH_NOTIFY_ENDPOINT`，脚本可以直接调用。
 - relay 会把 workspace、remote 标识和当前编辑器信息转换为 UI 端可用于标题匹配的提示。
@@ -33,6 +34,8 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 推荐先安装 UI 端扩展。UI 端扩展包含 relay 的 extension pack 声明；在远端窗口中，如果 relay 未安装或版本过旧，UI 端扩展会提示安装或更新。安装或更新 relay 后，需要 Reload Window 才能让 relay 激活并注入终端环境变量。
 
 纯本地使用时，两个扩展都可以安装在本地。Remote SSH、WSL、Dev Containers、Vagrant 等场景中，UI 端扩展在本地运行，relay 在远端/workspace 侧运行。
+
+首次使用精准窗口匹配时，UI 端会提示将 `${windowFlashNotifyId}` 加入本地 `window.title`。启用后，每个 relay 窗口会在标题中显示一个短 ID，例如 `[WFN:3A7F]`，通知会优先用这个 ID 精确定位窗口。也可以手动运行命令 `Window Flash Notify: 启用精准窗口匹配`。
 
 ## 快速开始
 
@@ -143,6 +146,7 @@ UI 端扩展：
 | `windowFlashNotify.toastTimeout` | `15` | Toast 过期时间，单位为秒；设为 `0` 表示不设置过期时间。 |
 | `windowFlashNotify.autoInstallRelay` | `true` | 在远端窗口中检测 relay，缺失或过旧时提示安装/更新。 |
 | `windowFlashNotify.useProcessChainTieBreaker` | `false` | 仅当多个窗口命中同分标题提示时，使用 Windows 进程链作为辅助决胜。默认关闭；多数窗口共享同一个 VS Code 主进程时帮助有限，并会增加 WMI/CIM 查询开销。 |
+| `windowFlashNotify.promptWindowTitleId` | `true` | 当本地 `window.title` 缺少 `${windowFlashNotifyId}` 时，提示启用精准窗口匹配。 |
 
 Relay 扩展：
 
@@ -160,6 +164,7 @@ UI 端扩展：
 - `Window Flash Notify: 测试 UI 闪烁`：发送一次 UI 端测试闪烁。
 - `Window Flash Notify: 诊断 Windows 窗口定位`：在输出面板中打印可见 VS Code 窗口、标题提示匹配结果，以及启用时的进程链辅助信息。
 - `Window Flash Notify: 在远程窗口安装 Relay`：手动检查并安装/更新当前远端窗口中的 relay。
+- `Window Flash Notify: 启用精准窗口匹配`：将 `${windowFlashNotifyId}` 加入本地 `window.title`，用于按 relay 窗口 ID 精确匹配。
 - `Window Flash Notify: 选择通知声音`：选择本地 `.wav` 文件并复制到扩展存储中。
 - `Window Flash Notify: 清除通知声音`：清除当前自定义通知声音配置。
 - `Window Flash Notify: 测试通知声音`：播放一次当前配置的通知声音。
@@ -174,7 +179,8 @@ Relay 扩展：
 - 窗口闪烁、聚焦、声音和 toast 功能依赖本地 Windows 桌面环境。
 - 非 Windows 本地桌面可以运行 relay endpoint，但不会产生 Windows 任务栏闪烁。
 - `focus` 会主动改变前台窗口；不希望打断当前工作时请使用默认的 `flash`。
-- 窗口定位默认使用 relay 生成的标题匹配提示，常见来源包括 workspace 名称/路径、Remote SSH/WSL 等 remote 标识、workspace 文件、当前或可见编辑器路径。
+- 窗口定位优先使用 relay 生成的 `[WFN:xxxx]` 标题 ID。该 ID 需要本地 `window.title` 包含 `${windowFlashNotifyId}`，可通过命令 `Window Flash Notify: 启用精准窗口匹配` 自动写入本地用户设置。
+- 如果标题 ID 不可用，窗口定位会回退到 relay 生成的标题匹配提示，常见来源包括 workspace 名称/路径、Remote SSH/WSL 等 remote 标识、workspace 文件、当前或可见编辑器路径。
 - 只有标题提示能唯一定位窗口时，扩展才会执行闪烁或聚焦；如果多个窗口无法可靠区分，扩展会避免无差别闪烁所有 VS Code 窗口。
 - 进程链匹配默认关闭，只在多个窗口命中同分标题提示时可作为辅助决胜。它适合从不同 VS Code 主进程打开窗口的少数场景；如果多个窗口都汇聚到同一个主进程，通常不会提高准确率，并会增加 WMI/CIM 查询开销。
 - 点击 toast 后会尝试返回原始 VS Code 窗口；Windows 启动协议处理程序可能需要短暂时间。

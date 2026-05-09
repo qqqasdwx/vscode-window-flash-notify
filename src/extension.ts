@@ -40,13 +40,24 @@ interface UiHealthResult {
   version: string;
   platform: NodeJS.Platform;
   implementation: string;
+  windowTitle: {
+    variable: string;
+    token: string;
+    contextKey: string;
+    registered: boolean;
+    configured: boolean;
+  };
 }
 
 const defaultExtensionId = "qqqasdwx.vscode-window-flash-notify";
 const relayExtensionId = "qqqasdwx.vscode-window-flash-notify-relay";
 const relayPrimaryCommand = "windowFlashNotifyRelay.testFlash";
-const minimumRelayVersion = "0.2.17";
+const minimumRelayVersion = "0.2.28";
 const focusProtocolScheme = "windowflashnotify";
+const windowTitleVariableName = "windowFlashNotifyId";
+const windowTitleVariableToken = "${windowFlashNotifyId}";
+const windowTitleContextKey = "windowFlashNotify.windowId";
+const defaultWindowTitleTemplate = "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}";
 const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
 const customSoundFileName = "notification.wav";
@@ -58,6 +69,8 @@ let extensionContext: vscode.ExtensionContext | undefined;
 let relayPromptInProgress = false;
 let relayPromptShownThisSession = false;
 let focusProtocolRegistration: Promise<boolean> | undefined;
+let windowTitleVariableRegistered = false;
+let windowTitlePromptShownThisSession = false;
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionContext = context;
@@ -81,6 +94,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotify.installRelay", async () => {
       await promptInstallRelay(context, true);
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotify.enablePreciseWindowMatching", async () => {
+      await enablePreciseWindowMatching(true);
     })
   );
   context.subscriptions.push(
@@ -128,6 +146,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  void initializeWindowTitleVariable(context);
   scheduleRelayInstallCheck(context);
   if (process.platform === "win32") {
     void ensureFocusProtocolRegistered(context);
@@ -233,8 +252,146 @@ function getUiHealthResult(): UiHealthResult {
     id: extensionId,
     version: extensionVersion,
     platform: process.platform,
-    implementation
+    implementation,
+    windowTitle: {
+      variable: windowTitleVariableName,
+      token: windowTitleVariableToken,
+      contextKey: windowTitleContextKey,
+      registered: windowTitleVariableRegistered,
+      configured: isWindowTitleVariableConfigured()
+    }
   };
+}
+
+async function initializeWindowTitleVariable(context: vscode.ExtensionContext): Promise<void> {
+  windowTitleVariableRegistered = await registerWindowTitleVariable();
+  if (!windowTitleVariableRegistered || process.platform !== "win32" || isWindowTitleVariableConfigured()) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    void promptEnablePreciseWindowMatching();
+  }, 2500);
+  context.subscriptions.push({
+    dispose: () => clearTimeout(timer)
+  });
+}
+
+async function registerWindowTitleVariable(): Promise<boolean> {
+  try {
+    await vscode.commands.executeCommand(
+      "registerWindowTitleVariable",
+      windowTitleVariableName,
+      windowTitleContextKey
+    );
+    output.appendLine(`Registered window title variable: ${windowTitleVariableToken}`);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Window title variable registration failed: ${message}`);
+    return false;
+  }
+}
+
+async function promptEnablePreciseWindowMatching(): Promise<void> {
+  if (
+    windowTitlePromptShownThisSession ||
+    !getConfig().get<boolean>("promptWindowTitleId", true) ||
+    isWindowTitleVariableConfigured()
+  ) {
+    return;
+  }
+
+  windowTitlePromptShownThisSession = true;
+  const enableLabel = vscode.l10n.t("Enable Precise Matching");
+  const laterLabel = vscode.l10n.t("Later");
+  const choice = await vscode.window.showInformationMessage(
+    vscode.l10n.t(
+      "Window Flash Notify can add a short per-window ID to the VS Code title for more reliable window matching."
+    ),
+    enableLabel,
+    laterLabel
+  );
+
+  if (choice === enableLabel) {
+    await enablePreciseWindowMatching(false);
+  }
+}
+
+async function enablePreciseWindowMatching(forced: boolean): Promise<void> {
+  if (!windowTitleVariableRegistered) {
+    windowTitleVariableRegistered = await registerWindowTitleVariable();
+  }
+
+  if (!windowTitleVariableRegistered) {
+    vscode.window.showWarningMessage(
+      vscode.l10n.t("This VS Code version does not support custom window title variables.")
+    );
+    return;
+  }
+
+  if (isWindowTitleVariableConfigured()) {
+    if (forced) {
+      vscode.window.showInformationMessage(
+        vscode.l10n.t("VS Code window.title already includes {variable}.", {
+          variable: windowTitleVariableToken
+        })
+      );
+    }
+    return;
+  }
+
+  try {
+    const windowConfig = vscode.workspace.getConfiguration("window");
+    const currentTitle = getWindowTitleTemplate();
+    const nextTitle = addWindowTitleVariable(currentTitle);
+    await windowConfig.update("title", nextTitle, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(
+      vscode.l10n.t("Precise window matching enabled by adding {variable} to the local window title.", {
+        variable: windowTitleVariableToken
+      })
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Precise window matching setup failed: ${message}`);
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Failed to enable precise window matching: {message}", { message })
+    );
+  }
+}
+
+function isWindowTitleVariableConfigured(): boolean {
+  return getWindowTitleTemplate().includes(windowTitleVariableToken);
+}
+
+function getWindowTitleTemplate(): string {
+  return vscode.workspace
+    .getConfiguration("window")
+    .get<string>("title", defaultWindowTitleTemplate);
+}
+
+function addWindowTitleVariable(template: string): string {
+  if (template.includes(windowTitleVariableToken)) {
+    return template;
+  }
+
+  if (template.includes("${rootName}")) {
+    return template.replace("${rootName}", "${rootName}${separator}" + windowTitleVariableToken);
+  }
+
+  if (template.includes("${remoteName}")) {
+    return template.replace("${remoteName}", "${remoteName}${separator}" + windowTitleVariableToken);
+  }
+
+  if (template.includes("${profileName}")) {
+    return template.replace("${profileName}", windowTitleVariableToken + "${separator}${profileName}");
+  }
+
+  if (template.includes("${appName}")) {
+    return template.replace("${appName}", windowTitleVariableToken + "${separator}${appName}");
+  }
+
+  return template + "${separator}" + windowTitleVariableToken;
 }
 
 async function postRelayAck(
@@ -384,7 +541,7 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
     payload.workspacePath,
     payload.workspaceHints
   );
-  const workspaceName = workspaceHints[0] || payload.workspaceName || getWorkspaceName();
+  const workspaceName = payload.workspaceName || getWorkspaceName();
 
   output.appendLine(
     `Notify: action=${action} type=${type} workspace=${workspaceName} hints=${workspaceHints.join("|")} message=${message}`

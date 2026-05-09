@@ -36,6 +36,9 @@ const uiNotifyCommand = "windowFlashNotify.notify";
 const uiHealthCommand = "windowFlashNotify.health";
 const uiExtensionId = "qqqasdwx.vscode-window-flash-notify";
 const endpointEnvVar = "WINDOW_FLASH_NOTIFY_ENDPOINT";
+const windowTitleVariableName = "windowFlashNotifyId";
+const windowTitleVariableToken = "${windowFlashNotifyId}";
+const windowTitleContextKey = "windowFlashNotify.windowId";
 const uiCommandTimeoutMs = 3000;
 const uriAckTimeoutMs = 5000;
 const output = vscode.window.createOutputChannel("Window Flash Notify Relay");
@@ -45,11 +48,15 @@ let activePort: number | undefined;
 let activeEndpoint: string | undefined;
 let extensionContext: vscode.ExtensionContext | undefined;
 let extensionVersion = "unknown";
+let windowTitleIdentifier = "";
+let windowTitleIdentifierActive = false;
+let windowTitleVariableRegistered = false;
 const pendingAcks = new Map<string, PendingAck>();
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionContext = context;
   extensionVersion = getExtensionVersion(context);
+  windowTitleIdentifier = createWindowTitleIdentifier();
   output.appendLine("Activating Window Flash Notify Relay");
 
   context.subscriptions.push(output);
@@ -69,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  await setupWindowTitleIdentifier();
   await startServer();
 
   context.subscriptions.push({
@@ -79,6 +87,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
+  await clearWindowTitleIdentifier();
   await stopServer();
 }
 
@@ -145,6 +154,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         workspaceName: getWorkspaceName(),
         workspacePath: getPrimaryWorkspacePath(),
         workspaceHints: getWorkspaceMatchHints(),
+        windowTitle: getWindowTitleIdentifierInfo(),
         uiExtension: getExtensionInfo(uiExtensionId),
         uiHealth: await getUiHealth(),
         uiCommand: uiNotifyCommand,
@@ -716,6 +726,10 @@ function getWorkspaceMatchHints(
     addPathHints(uri.path);
   };
 
+  if (windowTitleIdentifierActive) {
+    addHint(windowTitleIdentifier);
+  }
+
   for (const hint of providedHints) {
     addNameVariants(hint);
     addPathHints(hint);
@@ -745,6 +759,56 @@ function getWorkspaceMatchHints(
   function addEditorHints(editor: vscode.TextEditor | undefined): void {
     addUriHints(editor?.document.uri);
   }
+}
+
+function createWindowTitleIdentifier(): string {
+  return `[WFN:${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}]`;
+}
+
+async function setupWindowTitleIdentifier(): Promise<void> {
+  try {
+    await vscode.commands.executeCommand(
+      "registerWindowTitleVariable",
+      windowTitleVariableName,
+      windowTitleContextKey
+    );
+    windowTitleVariableRegistered = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Window title variable registration failed: ${message}`);
+  }
+
+  try {
+    await vscode.commands.executeCommand("setContext", windowTitleContextKey, windowTitleIdentifier);
+    windowTitleIdentifierActive = true;
+    output.appendLine(`Window title identifier: ${windowTitleIdentifier}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Window title identifier setup failed: ${message}`);
+  }
+}
+
+async function clearWindowTitleIdentifier(): Promise<void> {
+  if (!windowTitleIdentifierActive) {
+    return;
+  }
+
+  try {
+    await vscode.commands.executeCommand("setContext", windowTitleContextKey, undefined);
+  } catch {
+  }
+  windowTitleIdentifierActive = false;
+}
+
+function getWindowTitleIdentifierInfo(): Record<string, unknown> {
+  return {
+    variable: windowTitleVariableName,
+    token: windowTitleVariableToken,
+    contextKey: windowTitleContextKey,
+    id: windowTitleIdentifierActive ? windowTitleIdentifier : "",
+    active: windowTitleIdentifierActive,
+    registered: windowTitleVariableRegistered
+  };
 }
 
 function stripRemoteSuffix(value: string | undefined): string | undefined {
