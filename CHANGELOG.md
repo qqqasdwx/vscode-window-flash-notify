@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.2.32
+
+- Make the default window title alert more prominent with fixed-slot block
+  frames such as `[██████ ALERT]` and `[░░░░░░ ALERT]`.
+- Add `windowFlashNotify.titleAlertFrames` so users can customize the title
+  alert frames without needing a new extension release.
+
 ## 0.2.31
 
 - Keep the window title alert blinking until the originating VS Code window
