@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
@@ -57,11 +58,23 @@ const focusProtocolScheme = "windowflashnotify";
 const windowTitleVariableName = "windowFlashNotifyId";
 const windowTitleVariableToken = "${windowFlashNotifyId}";
 const windowTitleContextKey = "windowFlashNotify.windowId";
+const windowTitleAlertVariableName = "windowFlashNotifyAlert";
+const windowTitleAlertVariableToken = "${windowFlashNotifyAlert}";
+const windowTitleAlertContextKey = "windowFlashNotify.alert";
 const defaultWindowTitleTemplate = "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}";
 const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
 const customSoundFileName = "notification.wav";
 const customSoundMaxBytes = 10 * 1024 * 1024;
+const windowTitleAlertFrames = ["[WFN] ", "[!!!] "];
+const windowTitleAlertIntervalMs = 500;
+const windowTitleAlertDefaultDurationSeconds = 10;
+const toastNotificationGroup = "WindowFlashNotify";
+
+interface ToastNotificationReference {
+  tag: string;
+  group: string;
+}
 
 let extensionId = defaultExtensionId;
 let extensionVersion = "unknown";
@@ -70,7 +83,12 @@ let relayPromptInProgress = false;
 let relayPromptShownThisSession = false;
 let focusProtocolRegistration: Promise<boolean> | undefined;
 let windowTitleVariableRegistered = false;
+let windowTitleAlertVariableRegistered = false;
 let windowTitlePromptShownThisSession = false;
+let windowTitleAlertTimer: NodeJS.Timeout | undefined;
+let windowTitleAlertExpiresAt = 0;
+let windowTitleAlertFrameIndex = 0;
+const pendingToastNotifications: ToastNotificationReference[] = [];
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionContext = context;
@@ -145,8 +163,16 @@ export function activate(context: vscode.ExtensionContext): void {
       await diagnoseWindowsTargeting();
     })
   );
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) {
+        stopWindowTitleAlert();
+        clearPendingToastNotifications();
+      }
+    })
+  );
 
-  void initializeWindowTitleVariable(context);
+  void initializeWindowTitleVariables(context);
   scheduleRelayInstallCheck(context);
   if (process.platform === "win32") {
     void ensureFocusProtocolRegistered(context);
@@ -154,6 +180,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  stopWindowTitleAlert();
   output.appendLine("Deactivating Window Flash Notify UI");
 }
 
@@ -263,8 +290,19 @@ function getUiHealthResult(): UiHealthResult {
   };
 }
 
-async function initializeWindowTitleVariable(context: vscode.ExtensionContext): Promise<void> {
-  windowTitleVariableRegistered = await registerWindowTitleVariable();
+async function initializeWindowTitleVariables(context: vscode.ExtensionContext): Promise<void> {
+  windowTitleVariableRegistered = await registerWindowTitleVariable(
+    windowTitleVariableName,
+    windowTitleContextKey,
+    windowTitleVariableToken
+  );
+  windowTitleAlertVariableRegistered = await registerWindowTitleVariable(
+    windowTitleAlertVariableName,
+    windowTitleAlertContextKey,
+    windowTitleAlertVariableToken
+  );
+  void setWindowTitleAlert("");
+
   if (!windowTitleVariableRegistered || process.platform !== "win32" || isWindowTitleVariableConfigured()) {
     return;
   }
@@ -277,18 +315,18 @@ async function initializeWindowTitleVariable(context: vscode.ExtensionContext): 
   });
 }
 
-async function registerWindowTitleVariable(): Promise<boolean> {
+async function registerWindowTitleVariable(name: string, contextKey: string, token: string): Promise<boolean> {
   try {
     await vscode.commands.executeCommand(
       "registerWindowTitleVariable",
-      windowTitleVariableName,
-      windowTitleContextKey
+      name,
+      contextKey
     );
-    output.appendLine(`Registered window title variable: ${windowTitleVariableToken}`);
+    output.appendLine(`Registered window title variable: ${token}`);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    output.appendLine(`Window title variable registration failed: ${message}`);
+    output.appendLine(`Window title variable registration failed for ${token}: ${message}`);
     return false;
   }
 }
@@ -320,7 +358,18 @@ async function promptEnablePreciseWindowMatching(): Promise<void> {
 
 async function enablePreciseWindowMatching(forced: boolean): Promise<void> {
   if (!windowTitleVariableRegistered) {
-    windowTitleVariableRegistered = await registerWindowTitleVariable();
+    windowTitleVariableRegistered = await registerWindowTitleVariable(
+      windowTitleVariableName,
+      windowTitleContextKey,
+      windowTitleVariableToken
+    );
+  }
+  if (!windowTitleAlertVariableRegistered) {
+    windowTitleAlertVariableRegistered = await registerWindowTitleVariable(
+      windowTitleAlertVariableName,
+      windowTitleAlertContextKey,
+      windowTitleAlertVariableToken
+    );
   }
 
   if (!windowTitleVariableRegistered) {
@@ -330,12 +379,10 @@ async function enablePreciseWindowMatching(forced: boolean): Promise<void> {
     return;
   }
 
-  if (isWindowTitleVariableConfigured()) {
+  if (isWindowTitleVariableConfigured() && isWindowTitleAlertVariableConfigured()) {
     if (forced) {
       vscode.window.showInformationMessage(
-        vscode.l10n.t("VS Code window.title already includes {variable}.", {
-          variable: windowTitleVariableToken
-        })
+        vscode.l10n.t("VS Code window.title already includes Window Flash Notify title variables.")
       );
     }
     return;
@@ -344,12 +391,10 @@ async function enablePreciseWindowMatching(forced: boolean): Promise<void> {
   try {
     const windowConfig = vscode.workspace.getConfiguration("window");
     const currentTitle = getWindowTitleTemplate();
-    const nextTitle = addWindowTitleVariable(currentTitle);
+    const nextTitle = addWindowTitleVariables(currentTitle);
     await windowConfig.update("title", nextTitle, vscode.ConfigurationTarget.Global);
     vscode.window.showInformationMessage(
-      vscode.l10n.t("Precise window matching enabled by adding {variable} to the local window title.", {
-        variable: windowTitleVariableToken
-      })
+      vscode.l10n.t("Window Flash Notify title variables enabled in the local window title.")
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -364,13 +409,29 @@ function isWindowTitleVariableConfigured(): boolean {
   return getWindowTitleTemplate().includes(windowTitleVariableToken);
 }
 
+function isWindowTitleAlertVariableConfigured(): boolean {
+  return getWindowTitleTemplate().includes(windowTitleAlertVariableToken);
+}
+
 function getWindowTitleTemplate(): string {
   return vscode.workspace
     .getConfiguration("window")
     .get<string>("title", defaultWindowTitleTemplate);
 }
 
-function addWindowTitleVariable(template: string): string {
+function addWindowTitleVariables(template: string): string {
+  return addWindowTitleAlertVariable(addWindowTitleIdVariable(template));
+}
+
+function addWindowTitleAlertVariable(template: string): string {
+  if (template.includes(windowTitleAlertVariableToken)) {
+    return template;
+  }
+
+  return windowTitleAlertVariableToken + template;
+}
+
+function addWindowTitleIdVariable(template: string): string {
   if (template.includes(windowTitleVariableToken)) {
     return template;
   }
@@ -549,6 +610,7 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
 
   if (action === "flash") {
     runWindowsWindowAction("flash", workspaceHints);
+    startWindowTitleAlert();
   } else if (action === "focus") {
     runWindowsWindowAction("focus", workspaceHints);
   }
@@ -569,6 +631,66 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
     platform: process.platform,
     implementation
   };
+}
+
+function startWindowTitleAlert(): void {
+  const config = getConfig();
+  if (
+    vscode.window.state.focused ||
+    !config.get<boolean>("titleAlertEnabled", true) ||
+    !windowTitleAlertVariableRegistered
+  ) {
+    return;
+  }
+
+  const durationSeconds = clampNumber(
+    config.get<number>("titleAlertDuration", windowTitleAlertDefaultDurationSeconds),
+    1,
+    300
+  );
+  windowTitleAlertExpiresAt = Date.now() + (durationSeconds * 1000);
+
+  if (!windowTitleAlertTimer) {
+    windowTitleAlertFrameIndex = 0;
+    void setWindowTitleAlert(windowTitleAlertFrames[windowTitleAlertFrameIndex]);
+    windowTitleAlertTimer = setInterval(tickWindowTitleAlert, windowTitleAlertIntervalMs);
+    return;
+  }
+
+  tickWindowTitleAlert();
+}
+
+function tickWindowTitleAlert(): void {
+  if (Date.now() >= windowTitleAlertExpiresAt || vscode.window.state.focused) {
+    stopWindowTitleAlert();
+    return;
+  }
+
+  windowTitleAlertFrameIndex = (windowTitleAlertFrameIndex + 1) % windowTitleAlertFrames.length;
+  void setWindowTitleAlert(windowTitleAlertFrames[windowTitleAlertFrameIndex]);
+}
+
+function stopWindowTitleAlert(): void {
+  if (windowTitleAlertTimer) {
+    clearInterval(windowTitleAlertTimer);
+    windowTitleAlertTimer = undefined;
+  }
+  windowTitleAlertExpiresAt = 0;
+  windowTitleAlertFrameIndex = 0;
+  void setWindowTitleAlert("");
+}
+
+async function setWindowTitleAlert(value: string): Promise<void> {
+  if (!windowTitleAlertVariableRegistered) {
+    return;
+  }
+
+  try {
+    await vscode.commands.executeCommand("setContext", windowTitleAlertContextKey, value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Window title alert update failed: ${message}`);
+  }
 }
 
 function playNotificationSound(type: NotifyType): void {
@@ -750,6 +872,11 @@ async function showToastNotification(
     300
   );
   const focusUri = await buildToastFocusUri(workspaceName, workspaceHints, process.pid);
+  const clearOnFocus = getConfig().get<boolean>("clearToastOnFocus", true);
+  const toastTag = clearOnFocus ? createToastNotificationTag() : "";
+  if (clearOnFocus && toastTag) {
+    rememberToastNotification(toastTag, toastNotificationGroup);
+  }
 
   output.appendLine(`Showing toast: ${title} - ${message}`);
   schedulePowerShellDetached("toast", getToastPowerShell(), {
@@ -759,6 +886,35 @@ async function showToastNotification(
     WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT: String(toastTimeout),
     WINDOW_FLASH_NOTIFY_TOAST_FOCUS_URI: focusUri,
     WINDOW_FLASH_NOTIFY_TOAST_ACTION: vscode.l10n.t("Focus VS Code"),
+    WINDOW_FLASH_NOTIFY_TOAST_TAG: toastTag,
+    WINDOW_FLASH_NOTIFY_TOAST_GROUP: toastNotificationGroup,
+    WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName || "Visual Studio Code"
+  });
+}
+
+function createToastNotificationTag(): string {
+  return `wfn-${Date.now()}-${randomUUID()}`;
+}
+
+function rememberToastNotification(tag: string, group: string): void {
+  pendingToastNotifications.push({ tag, group });
+}
+
+function clearPendingToastNotifications(): void {
+  if (pendingToastNotifications.length === 0) {
+    return;
+  }
+
+  const notifications = pendingToastNotifications.splice(0);
+  if (process.platform !== "win32" || !getConfig().get<boolean>("clearToastOnFocus", true)) {
+    return;
+  }
+
+  schedulePowerShellDetached("toast-clear", getToastClearPowerShell(), {
+    ...process.env,
+    WINDOW_FLASH_NOTIFY_TOAST_REFS: notifications
+      .map((notification) => `${notification.group}\t${notification.tag}`)
+      .join("\n"),
     WINDOW_FLASH_NOTIFY_PRODUCT: vscode.env.appName || "Visual Studio Code"
   });
 }
@@ -957,32 +1113,14 @@ $title = $env:WINDOW_FLASH_NOTIFY_TOAST_TITLE
 $message = $env:WINDOW_FLASH_NOTIFY_TOAST_MESSAGE
 $focusUri = $env:WINDOW_FLASH_NOTIFY_TOAST_FOCUS_URI
 $actionContent = $env:WINDOW_FLASH_NOTIFY_TOAST_ACTION
-$appId = $env:WINDOW_FLASH_NOTIFY_PRODUCT
+$toastTag = $env:WINDOW_FLASH_NOTIFY_TOAST_TAG
+$toastGroup = $env:WINDOW_FLASH_NOTIFY_TOAST_GROUP
 if ([string]::IsNullOrWhiteSpace($actionContent)) {
   $actionContent = 'Focus VS Code'
 }
-if ([string]::IsNullOrWhiteSpace($appId)) {
-  $appId = 'Visual Studio Code'
-}
 
-try {
-  $startApps = @(Get-StartApps | Where-Object {
-    $_.Name -like '*Visual Studio Code*' -or
-    $_.Name -like '*VS Code*' -or
-    $_.AppID -like '*VisualStudioCode*' -or
-    $_.AppID -like '*Code*'
-  } | Select-Object -First 10 Name, AppID)
-  if ($startApps.Count -gt 0) {
-    $preferredStartApp = @($startApps | Where-Object { $_.AppID -like '*VisualStudioCode*' } | Select-Object -First 1)
-    if ($preferredStartApp.Count -eq 0) {
-      $preferredStartApp = @($startApps | Select-Object -First 1)
-    }
-    if ($preferredStartApp.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$preferredStartApp[0].AppID)) {
-      $appId = [string]$preferredStartApp[0].AppID
-    }
-  }
-} catch {
-}
+${getToastAppIdPowerShell()}
+$appId = Resolve-WindowFlashToastAppId $env:WINDOW_FLASH_NOTIFY_PRODUCT
 
 $timeoutSeconds = 15
 if ($env:WINDOW_FLASH_NOTIFY_TOAST_TIMEOUT) {
@@ -1019,11 +1157,88 @@ $xmlText = @"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+if (-not [string]::IsNullOrWhiteSpace($toastTag)) {
+  $toast.Tag = $toastTag
+}
+if (-not [string]::IsNullOrWhiteSpace($toastGroup)) {
+  $toast.Group = $toastGroup
+}
 if ($timeoutSeconds -gt 0) {
   $toast.ExpirationTime = [System.DateTimeOffset]::Now.AddSeconds($timeoutSeconds)
 }
 $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
 $notifier.Show($toast)
+`;
+}
+
+function getToastClearPowerShell(): string {
+  return `
+$ErrorActionPreference = 'Stop'
+
+$toastRefsRaw = $env:WINDOW_FLASH_NOTIFY_TOAST_REFS
+if ([string]::IsNullOrWhiteSpace($toastRefsRaw)) {
+  exit 0
+}
+
+${getToastAppIdPowerShell()}
+$appId = Resolve-WindowFlashToastAppId $env:WINDOW_FLASH_NOTIFY_PRODUCT
+
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+$history = [Windows.UI.Notifications.ToastNotificationManager]::History
+
+foreach ($line in ($toastRefsRaw -split [string][char]10)) {
+  if ([string]::IsNullOrWhiteSpace($line)) {
+    continue
+  }
+
+  $parts = $line -split [string][char]9, 2
+  if ($parts.Count -ne 2) {
+    continue
+  }
+
+  $group = $parts[0]
+  $tag = $parts[1]
+  if ([string]::IsNullOrWhiteSpace($group) -or [string]::IsNullOrWhiteSpace($tag)) {
+    continue
+  }
+
+  try {
+    [Windows.UI.Notifications.ToastNotificationManager]::History.Remove($tag, $group, $appId)
+  } catch {
+  }
+}
+`;
+}
+
+function getToastAppIdPowerShell(): string {
+  return `
+function Resolve-WindowFlashToastAppId([string]$productName) {
+  $appId = $productName
+  if ([string]::IsNullOrWhiteSpace($appId)) {
+    $appId = 'Visual Studio Code'
+  }
+
+  try {
+    $startApps = @(Get-StartApps | Where-Object {
+      $_.Name -like '*Visual Studio Code*' -or
+      $_.Name -like '*VS Code*' -or
+      $_.AppID -like '*VisualStudioCode*' -or
+      $_.AppID -like '*Code*'
+    } | Select-Object -First 10 Name, AppID)
+    if ($startApps.Count -gt 0) {
+      $preferredStartApp = @($startApps | Where-Object { $_.AppID -like '*VisualStudioCode*' } | Select-Object -First 1)
+      if ($preferredStartApp.Count -eq 0) {
+        $preferredStartApp = @($startApps | Select-Object -First 1)
+      }
+      if ($preferredStartApp.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$preferredStartApp[0].AppID)) {
+        $appId = [string]$preferredStartApp[0].AppID
+      }
+    }
+  } catch {
+  }
+
+  return $appId
+}
 `;
 }
 

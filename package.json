@@ -121,6 +121,23 @@
           "maximum": 300,
           "description": "%configuration.toastTimeout.description%"
         },
+        "windowFlashNotify.titleAlertEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.titleAlertEnabled.description%"
+        },
+        "windowFlashNotify.titleAlertDuration": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 300,
+          "description": "%configuration.titleAlertDuration.description%"
+        },
+        "windowFlashNotify.clearToastOnFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.clearToastOnFocus.description%"
+        },
         "windowFlashNotify.autoInstallRelay": {
           "type": "boolean",
           "default": true,
