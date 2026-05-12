@@ -53,7 +53,7 @@ interface UiHealthResult {
 const defaultExtensionId = "qqqasdwx.vscode-window-flash-notify";
 const relayExtensionId = "qqqasdwx.vscode-window-flash-notify-relay";
 const relayPrimaryCommand = "windowFlashNotifyRelay.testFlash";
-const minimumRelayVersion = "0.2.28";
+const minimumRelayVersion = "0.2.29";
 const focusProtocolScheme = "windowflashnotify";
 const windowTitleVariableName = "windowFlashNotifyId";
 const windowTitleVariableToken = "${windowFlashNotifyId}";

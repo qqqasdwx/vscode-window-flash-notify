@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.2.29
+
+- Add an optional fixed-length window title alert for `flash` notifications,
+  alternating `[WFN]` and `[!!!]` without replacing taskbar flashing.
+- Add `${windowFlashNotifyAlert}` to the local title setup flow so matching and
+  title alerts can be enabled together.
+- Tag Window Flash Notify toast notifications and clear them from Windows
+  notification history when the associated VS Code window regains focus.
+
 ## 0.2.28
 
 - Add precise per-window matching through a relay-generated `[WFN:xxxx]`
