@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.2.31
+
+- Keep the window title alert blinking until the originating VS Code window
+  regains focus when `windowFlashNotify.flashUntilForeground` is enabled.
+- Make the title alert marker wider and use fixed-width frames such as
+  `[!!--]`, `[-!!-]`, and `[--!!]` so it is more visible without repeated title
+  width jitter during blinking.
+
 ## 0.2.30
 
 - Prompt existing precise-matching users to add the new
