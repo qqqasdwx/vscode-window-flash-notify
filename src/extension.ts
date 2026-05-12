@@ -66,7 +66,7 @@ const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
 const customSoundFileName = "notification.wav";
 const customSoundMaxBytes = 10 * 1024 * 1024;
-const windowTitleAlertFrames = ["[WFN] ", "[!!!] "];
+const windowTitleAlertFrames = ["[!  ] ", "[ ! ] ", "[  !] ", "[ ! ] "];
 const windowTitleAlertIntervalMs = 500;
 const windowTitleAlertDefaultDurationSeconds = 10;
 const toastNotificationGroup = "WindowFlashNotify";
@@ -652,12 +652,16 @@ function startWindowTitleAlert(): void {
     return;
   }
 
-  const durationSeconds = clampNumber(
-    config.get<number>("titleAlertDuration", windowTitleAlertDefaultDurationSeconds),
-    1,
-    300
-  );
-  windowTitleAlertExpiresAt = Date.now() + (durationSeconds * 1000);
+  if (config.get<boolean>("flashUntilForeground", true)) {
+    windowTitleAlertExpiresAt = Number.POSITIVE_INFINITY;
+  } else {
+    const durationSeconds = clampNumber(
+      config.get<number>("titleAlertDuration", windowTitleAlertDefaultDurationSeconds),
+      1,
+      300
+    );
+    windowTitleAlertExpiresAt = Date.now() + (durationSeconds * 1000);
+  }
 
   if (!windowTitleAlertTimer) {
     windowTitleAlertFrameIndex = 0;

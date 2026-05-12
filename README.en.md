@@ -14,7 +14,7 @@ Common use cases:
 ## Features
 
 - Flash the matching VS Code taskbar button without interrupting your current focus.
-- Optional title alert: `flash` notifications can briefly blink a fixed-length `[WFN]` / `[!!!]` marker in the unfocused originating VS Code window title.
+- Optional title alert: `flash` notifications can blink a moving `!` marker in a fixed slot in the unfocused originating VS Code window title.
 - Supports `flash`, `focus`, and `none` actions.
 - Optional Windows system sound, custom WAV notification sound, and native toast notifications.
 - Clicking a toast attempts to return to the originating VS Code window; toasts created by this extension can be cleared automatically when that window regains focus.
@@ -36,7 +36,7 @@ Install the UI extension first. The UI extension declares the relay in its exten
 
 For local-only workflows, both extensions can be installed locally. For Remote SSH, WSL, Dev Containers, Vagrant, and similar workflows, the UI extension runs locally and the relay runs on the remote/workspace side.
 
-On first use, the UI extension can prompt to add `${windowFlashNotifyId}` and `${windowFlashNotifyAlert}` to the local `window.title` setting. Once enabled, each relay window shows a short ID such as `[WFN:3A7F]` in the title, and notifications use that ID as the highest-priority window match. `flash` notifications can also temporarily show a fixed-length `[WFN]` / `[!!!]` title alert at the front of the title, so the title does not repeatedly grow and shrink while blinking. You can also run `Window Flash Notify: Enable Precise Window Matching` manually.
+On first use, the UI extension can prompt to add `${windowFlashNotifyId}` and `${windowFlashNotifyAlert}` to the local `window.title` setting. Once enabled, each relay window shows a short ID such as `[WFN:3A7F]` in the title, and notifications use that ID as the highest-priority window match. `flash` notifications can also show a moving `!` title alert in a fixed slot at the front of the title, so the title does not repeatedly grow and shrink while blinking. You can also run `Window Flash Notify: Enable Precise Window Matching` manually.
 
 ## Quick Start
 
@@ -146,7 +146,7 @@ UI extension:
 | `windowFlashNotify.showToast` | `false` | Show a Windows toast notification by default after receiving a request. |
 | `windowFlashNotify.toastTimeout` | `15` | Toast expiration timeout in seconds. Set to `0` to leave expiration unset. |
 | `windowFlashNotify.titleAlertEnabled` | `true` | Also blink a window title alert for `flash` notifications when the originating VS Code window is not focused. Requires `${windowFlashNotifyAlert}` in `window.title`. |
-| `windowFlashNotify.titleAlertDuration` | `10` | Window title alert blink duration in seconds. |
+| `windowFlashNotify.titleAlertDuration` | `10` | Window title alert blink duration in seconds when `windowFlashNotify.flashUntilForeground` is disabled. |
 | `windowFlashNotify.clearToastOnFocus` | `true` | Automatically clear toast notifications created by this extension when the originating VS Code window regains focus. |
 | `windowFlashNotify.autoInstallRelay` | `true` | In remote windows, prompt to install or update the relay when it is missing or outdated. |
 | `windowFlashNotify.useProcessChainTieBreaker` | `false` | Use Windows process-chain inspection only as a tie-breaker when multiple windows match the same title hint score. Disabled by default; it is often not useful when windows share the same VS Code main process and it adds WMI/CIM lookup overhead. |
