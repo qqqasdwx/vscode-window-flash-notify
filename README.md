@@ -14,7 +14,7 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 ## 功能特性
 
 - 闪烁匹配的 VS Code 窗口任务栏按钮，默认不打断当前工作。
-- 可选标题提醒：`flash` 通知会在未聚焦的关联 VS Code 窗口标题中闪烁固定槽位的移动 `!!` 标记。
+- 可选标题提醒：`flash` 通知会在未聚焦的关联 VS Code 窗口标题中闪烁固定槽位的醒目 `ALERT` 标记。
 - 支持 `flash`、`focus`、`none` 三种动作。
 - 支持 Windows 系统提示音、自定义 WAV 通知声音和原生 toast 通知。
 - 点击 toast 后会尝试回到发出通知的 VS Code 窗口；关联窗口重新获得焦点时可自动清理本扩展创建的 toast。
@@ -36,7 +36,7 @@ Window Flash Notify 让脚本、终端任务、远端构建和测试流程在结
 
 纯本地使用时，两个扩展都可以安装在本地。Remote SSH、WSL、Dev Containers、Vagrant 等场景中，UI 端扩展在本地运行，relay 在远端/workspace 侧运行。
 
-首次使用精准窗口匹配时，UI 端会提示将 `${windowFlashNotifyId}` 和 `${windowFlashNotifyAlert}` 加入本地 `window.title`。启用后，每个 relay 窗口会在标题中显示一个短 ID，例如 `[WFN:3A7F]`，通知会优先用这个 ID 精确定位窗口。`flash` 通知还可以在标题前方显示固定槽位的移动 `!!` 标题提醒，例如 `[!!--]`、`[-!!-]`、`[--!!]`，避免标题在闪烁过程中反复变长变短。也可以手动运行命令 `Window Flash Notify: 启用精准窗口匹配`。
+首次使用精准窗口匹配时，UI 端会提示将 `${windowFlashNotifyId}` 和 `${windowFlashNotifyAlert}` 加入本地 `window.title`。启用后，每个 relay 窗口会在标题中显示一个短 ID，例如 `[WFN:3A7F]`，通知会优先用这个 ID 精确定位窗口。`flash` 通知还可以在标题前方显示固定槽位的标题提醒，例如 `[██████ ALERT]` 和 `[░░░░░░ ALERT]`，避免标题在闪烁过程中反复变长变短。也可以手动运行命令 `Window Flash Notify: 启用精准窗口匹配`。
 
 ## 快速开始
 
@@ -147,6 +147,7 @@ UI 端扩展：
 | `windowFlashNotify.toastTimeout` | `15` | Toast 过期时间，单位为秒；设为 `0` 表示不设置过期时间。 |
 | `windowFlashNotify.titleAlertEnabled` | `true` | 当关联 VS Code 窗口未获得焦点时，对 `flash` 通知同时闪烁窗口标题提醒；需要 `window.title` 包含 `${windowFlashNotifyAlert}`。 |
 | `windowFlashNotify.titleAlertDuration` | `10` | 关闭 `windowFlashNotify.flashUntilForeground` 时，标题提醒闪烁持续时间，单位为秒。 |
+| `windowFlashNotify.titleAlertFrames` | `["[██████ ALERT] ", "[░░░░░░ ALERT] "]` | 标题提醒闪烁时轮换显示的帧；建议保持各帧视觉宽度接近。 |
 | `windowFlashNotify.clearToastOnFocus` | `true` | 关联 VS Code 窗口重新获得焦点时，自动清理本扩展创建的 toast 通知。 |
 | `windowFlashNotify.autoInstallRelay` | `true` | 在远端窗口中检测 relay，缺失或过旧时提示安装/更新。 |
 | `windowFlashNotify.useProcessChainTieBreaker` | `false` | 仅当多个窗口命中同分标题提示时，使用 Windows 进程链作为辅助决胜。默认关闭；多数窗口共享同一个 VS Code 主进程时帮助有限，并会增加 WMI/CIM 查询开销。 |

@@ -66,7 +66,11 @@ const implementation = "delayed-detached-script";
 const output = vscode.window.createOutputChannel("Window Flash Notify");
 const customSoundFileName = "notification.wav";
 const customSoundMaxBytes = 10 * 1024 * 1024;
-const windowTitleAlertFrames = ["[!!--] ", "[-!!-] ", "[--!!] ", "[-!!-] "];
+const defaultWindowTitleAlertFrames = [
+  "[\u2588\u2588\u2588\u2588\u2588\u2588 ALERT] ",
+  "[\u2591\u2591\u2591\u2591\u2591\u2591 ALERT] "
+];
+const windowTitleAlertFrameMaxLength = 64;
 const windowTitleAlertIntervalMs = 500;
 const windowTitleAlertDefaultDurationSeconds = 10;
 const toastNotificationGroup = "WindowFlashNotify";
@@ -88,6 +92,7 @@ let windowTitlePromptShownThisSession = false;
 let windowTitleAlertTimer: NodeJS.Timeout | undefined;
 let windowTitleAlertExpiresAt = 0;
 let windowTitleAlertFrameIndex = 0;
+let activeWindowTitleAlertFrames = defaultWindowTitleAlertFrames;
 const pendingToastNotifications: ToastNotificationReference[] = [];
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -644,13 +649,17 @@ async function handleNotification(payload: NotifyPayload): Promise<NotifyResult>
 
 function startWindowTitleAlert(): void {
   const config = getConfig();
+  const frames = getWindowTitleAlertFrames(config);
   if (
     vscode.window.state.focused ||
     !config.get<boolean>("titleAlertEnabled", true) ||
-    !windowTitleAlertVariableRegistered
+    !windowTitleAlertVariableRegistered ||
+    frames.length === 0
   ) {
     return;
   }
+
+  activeWindowTitleAlertFrames = frames;
 
   if (config.get<boolean>("flashUntilForeground", true)) {
     windowTitleAlertExpiresAt = Number.POSITIVE_INFINITY;
@@ -665,7 +674,7 @@ function startWindowTitleAlert(): void {
 
   if (!windowTitleAlertTimer) {
     windowTitleAlertFrameIndex = 0;
-    void setWindowTitleAlert(windowTitleAlertFrames[windowTitleAlertFrameIndex]);
+    void setWindowTitleAlert(activeWindowTitleAlertFrames[windowTitleAlertFrameIndex]);
     windowTitleAlertTimer = setInterval(tickWindowTitleAlert, windowTitleAlertIntervalMs);
     return;
   }
@@ -679,8 +688,11 @@ function tickWindowTitleAlert(): void {
     return;
   }
 
-  windowTitleAlertFrameIndex = (windowTitleAlertFrameIndex + 1) % windowTitleAlertFrames.length;
-  void setWindowTitleAlert(windowTitleAlertFrames[windowTitleAlertFrameIndex]);
+  const frames = activeWindowTitleAlertFrames.length > 0
+    ? activeWindowTitleAlertFrames
+    : defaultWindowTitleAlertFrames;
+  windowTitleAlertFrameIndex = (windowTitleAlertFrameIndex + 1) % frames.length;
+  void setWindowTitleAlert(frames[windowTitleAlertFrameIndex]);
 }
 
 function stopWindowTitleAlert(): void {
@@ -2227,6 +2239,21 @@ function getWorkspaceName(): string {
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("windowFlashNotify");
+}
+
+function getWindowTitleAlertFrames(config: vscode.WorkspaceConfiguration): string[] {
+  const configuredFrames = config.get<unknown>("titleAlertFrames");
+  if (!Array.isArray(configuredFrames)) {
+    return defaultWindowTitleAlertFrames;
+  }
+
+  const frames = configuredFrames.filter((frame): frame is string => (
+    typeof frame === "string" &&
+    frame.trim().length > 0 &&
+    frame.length <= windowTitleAlertFrameMaxLength
+  ));
+
+  return frames.length > 0 ? frames : defaultWindowTitleAlertFrames;
 }
 
 function getExtensionVersion(context: vscode.ExtensionContext): string {

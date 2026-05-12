@@ -16,6 +16,7 @@
   "configuration.toastTimeout.description": "Windows toast 通知过期时间，单位为秒。设为 0 时不设置过期时间。",
   "configuration.titleAlertEnabled.description": "当此窗口未获得焦点时，对 flash 通知同时在 VS Code 窗口标题中闪烁固定槽位的 Window Flash Notify 标记。需要在 window.title 中包含 ${windowFlashNotifyAlert}。",
   "configuration.titleAlertDuration.description": "关闭 windowFlashNotify.flashUntilForeground 时，VS Code 窗口标题提醒标记的闪烁持续时间，单位为秒。",
+  "configuration.titleAlertFrames.description": "标题提醒闪烁时轮换显示的帧。请使用不超过 64 个字符的非空字符串；建议让各帧视觉宽度接近，以避免任务栏标题抖动。",
   "configuration.clearToastOnFocus.description": "关联的 VS Code 窗口重新获得焦点时，自动从通知历史中移除 Window Flash Notify toast 通知。",
   "configuration.autoInstallRelay.description": "当 UI 扩展运行在远程窗口中时，提示安装或更新 workspace 侧 relay 扩展。",
   "configuration.useProcessChainTieBreaker.description": "仅在多个 VS Code 窗口命中同一个标题提示时，使用 Windows 进程链检查作为辅助决胜。默认关闭，因为多数 VS Code 窗口共享同一个主进程，通常帮助有限，并会增加额外的 WMI/CIM 查询开销。",

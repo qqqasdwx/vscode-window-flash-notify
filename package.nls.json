@@ -16,6 +16,7 @@
   "configuration.toastTimeout.description": "Windows toast expiration timeout in seconds. Set to 0 to leave the toast expiration unset.",
   "configuration.titleAlertEnabled.description": "Also blink a fixed-slot Window Flash Notify marker in the VS Code window title for flash notifications when this window is not focused. Requires ${windowFlashNotifyAlert} in window.title.",
   "configuration.titleAlertDuration.description": "How long the VS Code window title alert marker should blink, in seconds, when windowFlashNotify.flashUntilForeground is disabled.",
+  "configuration.titleAlertFrames.description": "Title alert frames to alternate while blinking. Use non-empty strings up to 64 characters; keep frames visually similar in width to avoid taskbar title jitter.",
   "configuration.clearToastOnFocus.description": "Automatically remove Window Flash Notify toast notifications from notification history when the associated VS Code window regains focus.",
   "configuration.autoInstallRelay.description": "Prompt to install or update the workspace-side relay extension when this UI extension is running in a remote window.",
   "configuration.useProcessChainTieBreaker.description": "Use Windows process-chain inspection only as a tie-breaker when multiple VS Code windows match the same title hint. Disabled by default because most VS Code windows share the same main process, so this is often not useful and adds extra WMI/CIM lookup overhead.",

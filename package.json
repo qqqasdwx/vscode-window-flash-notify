@@ -133,6 +133,17 @@
           "maximum": 300,
           "description": "%configuration.titleAlertDuration.description%"
         },
+        "windowFlashNotify.titleAlertFrames": {
+          "type": "array",
+          "default": [
+            "[\u2588\u2588\u2588\u2588\u2588\u2588 ALERT] ",
+            "[\u2591\u2591\u2591\u2591\u2591\u2591 ALERT] "
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "%configuration.titleAlertFrames.description%"
+        },
         "windowFlashNotify.clearToastOnFocus": {
           "type": "boolean",
           "default": true,
