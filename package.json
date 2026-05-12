@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify",
   "displayName": "Window Flash Notify",
   "description": "%extension.description%",
-  "version": "0.2.29",
+  "version": "0.2.30",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",

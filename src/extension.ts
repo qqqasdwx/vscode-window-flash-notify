@@ -303,7 +303,12 @@ async function initializeWindowTitleVariables(context: vscode.ExtensionContext):
   );
   void setWindowTitleAlert("");
 
-  if (!windowTitleVariableRegistered || process.platform !== "win32" || isWindowTitleVariableConfigured()) {
+  if (
+    !windowTitleVariableRegistered ||
+    !windowTitleAlertVariableRegistered ||
+    process.platform !== "win32" ||
+    areWindowTitleVariablesConfigured()
+  ) {
     return;
   }
 
@@ -335,7 +340,7 @@ async function promptEnablePreciseWindowMatching(): Promise<void> {
   if (
     windowTitlePromptShownThisSession ||
     !getConfig().get<boolean>("promptWindowTitleId", true) ||
-    isWindowTitleVariableConfigured()
+    areWindowTitleVariablesConfigured()
   ) {
     return;
   }
@@ -411,6 +416,10 @@ function isWindowTitleVariableConfigured(): boolean {
 
 function isWindowTitleAlertVariableConfigured(): boolean {
   return getWindowTitleTemplate().includes(windowTitleAlertVariableToken);
+}
+
+function areWindowTitleVariablesConfigured(): boolean {
+  return isWindowTitleVariableConfigured() && isWindowTitleAlertVariableConfigured();
 }
 
 function getWindowTitleTemplate(): string {

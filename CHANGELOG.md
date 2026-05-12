@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.2.30
+
+- Prompt existing precise-matching users to add the new
+  `${windowFlashNotifyAlert}` title slot when they already have
+  `${windowFlashNotifyId}` configured.
+
 ## 0.2.29
 
 - Add an optional fixed-length window title alert for `flash` notifications,
