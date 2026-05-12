@@ -11,6 +11,7 @@
   "Failed to install Window Flash Notify Relay: {message}": "Failed to install Window Flash Notify Relay: {message}",
   "Enable Precise Matching": "Enable Precise Matching",
   "Window Flash Notify can add a short per-window ID to the VS Code title for more reliable window matching.": "Window Flash Notify can add a short per-window ID to the VS Code title for more reliable window matching.",
+  "Window Flash Notify can add a short per-window ID and alert slot to the VS Code title for more reliable notifications.": "Window Flash Notify can add a short per-window ID and alert slot to the VS Code title for more reliable notifications.",
   "This VS Code version does not support custom window title variables.": "This VS Code version does not support custom window title variables.",
   "VS Code window.title already includes {variable}.": "VS Code window.title already includes {variable}.",
   "VS Code window.title already includes Window Flash Notify title variables.": "VS Code window.title already includes Window Flash Notify title variables.",

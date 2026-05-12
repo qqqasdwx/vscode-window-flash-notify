@@ -11,6 +11,7 @@
   "Failed to install Window Flash Notify Relay: {message}": "安装 Window Flash Notify Relay 失败：{message}",
   "Enable Precise Matching": "启用精准匹配",
   "Window Flash Notify can add a short per-window ID to the VS Code title for more reliable window matching.": "Window Flash Notify 可以在 VS Code 标题中加入短窗口 ID，以提高窗口匹配可靠性。",
+  "Window Flash Notify can add a short per-window ID and alert slot to the VS Code title for more reliable notifications.": "Window Flash Notify 可以在 VS Code 标题中加入短窗口 ID 和提醒槽位，以提高通知可靠性。",
   "This VS Code version does not support custom window title variables.": "当前 VS Code 版本不支持自定义窗口标题变量。",
   "VS Code window.title already includes {variable}.": "VS Code window.title 已包含 {variable}。",
   "VS Code window.title already includes Window Flash Notify title variables.": "VS Code window.title 已包含 Window Flash Notify 标题变量。",

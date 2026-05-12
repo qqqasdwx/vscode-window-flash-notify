@@ -345,7 +345,7 @@ async function promptEnablePreciseWindowMatching(): Promise<void> {
   const laterLabel = vscode.l10n.t("Later");
   const choice = await vscode.window.showInformationMessage(
     vscode.l10n.t(
-      "Window Flash Notify can add a short per-window ID to the VS Code title for more reliable window matching."
+      "Window Flash Notify can add a short per-window ID and alert slot to the VS Code title for more reliable notifications."
     ),
     enableLabel,
     laterLabel
@@ -1184,7 +1184,7 @@ ${getToastAppIdPowerShell()}
 $appId = Resolve-WindowFlashToastAppId $env:WINDOW_FLASH_NOTIFY_PRODUCT
 
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-$history = [Windows.UI.Notifications.ToastNotificationManager]::History
+$toastRefs = New-Object System.Collections.Generic.List[object]
 
 foreach ($line in ($toastRefsRaw -split [string][char]10)) {
   if ([string]::IsNullOrWhiteSpace($line)) {
@@ -1202,11 +1202,26 @@ foreach ($line in ($toastRefsRaw -split [string][char]10)) {
     continue
   }
 
-  try {
-    [Windows.UI.Notifications.ToastNotificationManager]::History.Remove($tag, $group, $appId)
-  } catch {
-  }
+  [void]$toastRefs.Add([pscustomobject]@{
+    Group = $group
+    Tag = $tag
+  })
 }
+
+if ($toastRefs.Count -eq 0) {
+  exit 0
+}
+
+$deadline = [System.DateTime]::UtcNow.AddSeconds(4)
+do {
+  foreach ($toastRef in $toastRefs) {
+    try {
+      [Windows.UI.Notifications.ToastNotificationManager]::History.Remove($toastRef.Tag, $toastRef.Group, $appId)
+    } catch {
+    }
+  }
+  Start-Sleep -Milliseconds 500
+} while ([System.DateTime]::UtcNow -lt $deadline)
 `;
 }
 
