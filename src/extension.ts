@@ -50,10 +50,38 @@ interface UiHealthResult {
   };
 }
 
+interface RelayHealthResult {
+  ok: true;
+  role: "relay";
+  version?: string;
+  relayVersion?: string;
+  endpoint?: string;
+  port?: number;
+  workspaceName?: string;
+  workspacePath?: string;
+}
+
+interface RelayHealthFailure {
+  ok: false;
+  error: string;
+}
+
+interface RelayInstallState {
+  ok: boolean;
+  installed: boolean;
+  active: boolean;
+  version?: string;
+  endpoint?: string;
+  reason: "healthy" | "outdated" | "inactive" | "missing" | "commandOnly";
+  error?: string;
+}
+
 const defaultExtensionId = "qqqasdwx.vscode-window-flash-notify";
 const relayExtensionId = "qqqasdwx.vscode-window-flash-notify-relay";
+const relayHealthCommand = "windowFlashNotifyRelay.health";
 const relayPrimaryCommand = "windowFlashNotifyRelay.testFlash";
-const minimumRelayVersion = "0.2.29";
+const minimumRelayVersion = "0.2.33";
+const relayHealthTimeoutMs = 5000;
 const focusProtocolScheme = "windowflashnotify";
 const windowTitleVariableName = "windowFlashNotifyId";
 const windowTitleVariableToken = "${windowFlashNotifyId}";
@@ -523,8 +551,13 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     const state = await getRelayInstallState();
     if (state.ok) {
       if (forced) {
+        const endpointDetail = state.endpoint
+          ? vscode.l10n.t(" Endpoint: {endpoint}", { endpoint: state.endpoint })
+          : "";
         vscode.window.showInformationMessage(
-          vscode.l10n.t("Window Flash Notify Relay is already installed in this remote window.")
+          vscode.l10n.t("Window Flash Notify Relay is running in this remote window.{endpointDetail}", {
+            endpointDetail
+          })
         );
       }
       return;
@@ -534,19 +567,18 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     }
     relayPromptShownThisSession = true;
 
-    const installLabel = state.installed ? vscode.l10n.t("Update Relay") : vscode.l10n.t("Install Relay");
+    const reloadLabel = vscode.l10n.t("Reload Window");
+    const installLabel = getRelayInstallActionLabel(state, reloadLabel);
     const laterLabel = vscode.l10n.t("Later");
-    const message = state.installed
-      ? vscode.l10n.t(
-        "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.",
-        { version: state.version || "", minimumVersion: minimumRelayVersion }
-      )
-      : vscode.l10n.t(
-        "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications."
-      );
+    const message = getRelayInstallPromptMessage(state);
 
     const choice = await vscode.window.showWarningMessage(message, installLabel, laterLabel);
     if (choice !== installLabel) {
+      return;
+    }
+
+    if (choice === reloadLabel) {
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
       return;
     }
 
@@ -562,9 +594,10 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
     );
 
     await context.workspaceState.update("windowFlashNotify.lastRelayInstallAttempt", Date.now());
-    const reloadLabel = vscode.l10n.t("Reload Window");
     const reloadChoice = await vscode.window.showInformationMessage(
-      vscode.l10n.t("Window Flash Notify Relay was installed or updated. Reload this remote window to activate it."),
+      vscode.l10n.t(
+        "Window Flash Notify Relay was installed or updated. Reload this remote window to activate it, then open a new terminal so WINDOW_FLASH_NOTIFY_ENDPOINT is refreshed."
+      ),
       reloadLabel,
       laterLabel
     );
@@ -582,29 +615,116 @@ async function promptInstallRelay(context: vscode.ExtensionContext, forced: bool
   }
 }
 
-async function getRelayInstallState(): Promise<{ ok: boolean; installed: boolean; version?: string }> {
+function getRelayInstallActionLabel(state: RelayInstallState, reloadLabel: string): string {
+  if (state.installed && state.reason === "outdated") {
+    return vscode.l10n.t("Update Relay");
+  }
+
+  if (state.installed && state.reason === "inactive") {
+    return reloadLabel;
+  }
+
+  return vscode.l10n.t("Install Relay");
+}
+
+function getRelayInstallPromptMessage(state: RelayInstallState): string {
+  if (state.installed && state.reason === "outdated") {
+    return vscode.l10n.t(
+      "Window Flash Notify Relay {version} is older than {minimumVersion}. Update it in this remote window.",
+      { version: state.version || "", minimumVersion: minimumRelayVersion }
+    );
+  }
+
+  if (state.installed && state.reason === "inactive") {
+    return vscode.l10n.t(
+      "Window Flash Notify Relay is installed but did not respond in this remote window. Reload this window, then open a new terminal so WINDOW_FLASH_NOTIFY_ENDPOINT is refreshed."
+    );
+  }
+
+  if (state.installed && state.reason === "commandOnly") {
+    return vscode.l10n.t(
+      "Window Flash Notify Relay commands are visible but the health check did not respond. Reinstall or update the relay, then open a new terminal so WINDOW_FLASH_NOTIFY_ENDPOINT is refreshed."
+    );
+  }
+
+  return vscode.l10n.t(
+    "Window Flash Notify Relay is not installed in this remote window. Install it so local terminal scripts can send notifications."
+  );
+}
+
+async function getRelayInstallState(): Promise<RelayInstallState> {
+  const relayHealth = await getRelayHealth();
+  if (relayHealth?.ok && relayHealth.role === "relay") {
+    const version = relayHealth.relayVersion || relayHealth.version || "unknown";
+    const isCurrent = compareVersions(version, minimumRelayVersion) >= 0;
+    return {
+      ok: isCurrent,
+      installed: true,
+      active: true,
+      version,
+      endpoint: relayHealth.endpoint,
+      reason: isCurrent ? "healthy" : "outdated"
+    };
+  }
+  const healthError = relayHealth.ok ? undefined : relayHealth.error;
+
   const extension = vscode.extensions.getExtension(relayExtensionId);
   if (extension) {
     const version = getPackageVersionFromPath(extension.extensionUri.fsPath) ?? getPackageJsonVersion(extension.packageJSON);
+    const isCurrent = version !== "unknown" && compareVersions(version, minimumRelayVersion) >= 0;
     return {
-      ok: version !== "unknown" && compareVersions(version, minimumRelayVersion) >= 0,
+      ok: false,
       installed: true,
-      version
+      active: false,
+      version,
+      reason: isCurrent ? "inactive" : "outdated",
+      error: healthError
     };
   }
 
   const commands = await vscode.commands.getCommands(true);
   if (commands.includes(relayPrimaryCommand)) {
     return {
-      ok: true,
-      installed: true
+      ok: false,
+      installed: true,
+      active: false,
+      reason: "commandOnly",
+      error: healthError
     };
   }
 
   return {
     ok: false,
-    installed: false
+    installed: false,
+    active: false,
+    reason: "missing",
+    error: healthError
   };
+}
+
+async function getRelayHealth(): Promise<RelayHealthResult | RelayHealthFailure> {
+  try {
+    const result = await withTimeout(
+      vscode.commands.executeCommand(relayHealthCommand),
+      relayHealthTimeoutMs,
+      `Relay command ${relayHealthCommand} timed out after ${relayHealthTimeoutMs}ms`
+    );
+    if (isRelayHealthResult(result)) {
+      return result;
+    }
+
+    return {
+      ok: false,
+      error: `Relay command ${relayHealthCommand} returned an invalid health result`
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(`Relay health command failed: ${message}`);
+    return {
+      ok: false,
+      error: message
+    };
+  }
 }
 
 async function handleNotification(payload: NotifyPayload): Promise<NotifyResult> {
@@ -2258,6 +2378,67 @@ function getWindowTitleAlertFrames(config: vscode.WorkspaceConfiguration): strin
 
 function getExtensionVersion(context: vscode.ExtensionContext): string {
   return getPackageVersionFromPath(context.extensionUri.fsPath) ?? getPackageJsonVersion(context.extension.packageJSON);
+}
+
+function isRelayHealthResult(value: unknown): value is RelayHealthResult {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.ok === true &&
+    value.role === "relay" &&
+    isOptionalString(value.version) &&
+    isOptionalString(value.relayVersion) &&
+    isOptionalString(value.endpoint) &&
+    isOptionalNumber(value.port) &&
+    isOptionalString(value.workspaceName) &&
+    isOptionalString(value.workspacePath)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || typeof value === "number";
+}
+
+function withTimeout<T>(promise: Thenable<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 function getPackageVersionFromPath(extensionPath: string | undefined): string | undefined {

@@ -1,5 +1,6 @@
 {
   "extension.description": "Relay localhost workspace notifications to the local Window Flash Notify UI extension.",
+  "command.health.title": "Window Flash Notify Relay: Health",
   "command.copyCurlCommand.title": "Window Flash Notify Relay: Copy Curl Command",
   "command.testFlash.title": "Window Flash Notify Relay: Test Flash",
   "configuration.title": "Window Flash Notify Relay",

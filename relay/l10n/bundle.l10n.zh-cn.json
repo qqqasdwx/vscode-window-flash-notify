@@ -1,5 +1,9 @@
 {
   "Window Flash Notify relay curl command copied.": "已复制 Window Flash Notify Relay curl 命令。",
+  "New Terminal": "新建终端",
+  "Copy export": "复制 export",
+  "Window Flash Notify Relay is using {endpoint}. Existing terminals may keep an old endpoint; open a new terminal or export the new value.": "Window Flash Notify Relay 正在使用 {endpoint}。已有终端可能保留旧地址；请新建终端或导出新值。",
+  "Window Flash Notify endpoint export copied.": "已复制 Window Flash Notify endpoint export。",
   "Relay test notification": "Relay 测试通知",
   "Window Flash Notify Relay endpoint": "Window Flash Notify Relay 通知地址",
   "Window Flash Notify relay test": "Window Flash Notify Relay 测试"

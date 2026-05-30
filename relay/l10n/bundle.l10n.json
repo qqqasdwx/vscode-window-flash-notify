@@ -1,5 +1,9 @@
 {
   "Window Flash Notify relay curl command copied.": "Window Flash Notify relay curl command copied.",
+  "New Terminal": "New Terminal",
+  "Copy export": "Copy export",
+  "Window Flash Notify Relay is using {endpoint}. Existing terminals may keep an old endpoint; open a new terminal or export the new value.": "Window Flash Notify Relay is using {endpoint}. Existing terminals may keep an old endpoint; open a new terminal or export the new value.",
+  "Window Flash Notify endpoint export copied.": "Window Flash Notify endpoint export copied.",
   "Relay test notification": "Relay test notification",
   "Window Flash Notify Relay endpoint": "Window Flash Notify Relay endpoint",
   "Window Flash Notify relay test": "Window Flash Notify relay test"

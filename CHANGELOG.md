@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.2.33
+
+- Add a relay health command and use it for UI-side relay detection so a
+  running workspace relay is not mistaken for a missing install.
+- Warn when existing terminals may still have an old
+  `WINDOW_FLASH_NOTIFY_ENDPOINT` after the relay starts on a new port.
+
 ## 0.2.32
 
 - Make the default window title alert more prominent with fixed-slot block

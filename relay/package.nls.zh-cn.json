@@ -1,5 +1,6 @@
 {
   "extension.description": "从 workspace localhost 接收通知，并转发给本地 Window Flash Notify UI 扩展。",
+  "command.health.title": "Window Flash Notify Relay: 健康检查",
   "command.copyCurlCommand.title": "Window Flash Notify Relay: 复制 Curl 命令",
   "command.testFlash.title": "Window Flash Notify Relay: 测试闪烁",
   "configuration.title": "Window Flash Notify Relay",

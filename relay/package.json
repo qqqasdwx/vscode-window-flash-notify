@@ -2,7 +2,7 @@
   "name": "vscode-window-flash-notify-relay",
   "displayName": "Window Flash Notify Relay",
   "description": "%extension.description%",
-  "version": "0.2.32",
+  "version": "0.2.33",
   "publisher": "qqqasdwx",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -33,6 +33,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:windowFlashNotifyRelay.health",
     "onCommand:windowFlashNotifyRelay.copyCurlCommand",
     "onCommand:windowFlashNotifyRelay.testFlash"
   ],
@@ -42,6 +43,10 @@
   ],
   "contributes": {
     "commands": [
+      {
+        "command": "windowFlashNotifyRelay.health",
+        "title": "%command.health.title%"
+      },
       {
         "command": "windowFlashNotifyRelay.copyCurlCommand",
         "title": "%command.copyCurlCommand.title%"

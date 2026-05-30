@@ -32,6 +32,31 @@ interface PendingAck {
   reject: (error: Error) => void;
 }
 
+interface RelayHealthResult {
+  ok: true;
+  role: "relay";
+  version: string;
+  relayVersion: string;
+  port: number | undefined;
+  endpoint: string | undefined;
+  endpointEnvVar: string;
+  workspaceName: string;
+  workspacePath: string;
+  workspaceHints: string[];
+  windowTitle: Record<string, unknown>;
+  uiExtension: {
+    id: string;
+    version: string;
+    isActive: boolean;
+    extensionKind: vscode.ExtensionKind | "unknown";
+  };
+  uiHealth?: unknown;
+  uiCommand: string;
+  uiHealthCommand: string;
+  uiCommandTimeoutMs: number;
+  uriAckTimeoutMs: number;
+}
+
 const uiNotifyCommand = "windowFlashNotify.notify";
 const uiHealthCommand = "windowFlashNotify.health";
 const uiExtensionId = "qqqasdwx.vscode-window-flash-notify";
@@ -41,6 +66,7 @@ const windowTitleVariableToken = "${windowFlashNotifyId}";
 const windowTitleContextKey = "windowFlashNotify.windowId";
 const uiCommandTimeoutMs = 3000;
 const uriAckTimeoutMs = 5000;
+const lastEndpointWorkspaceStateKey = "windowFlashNotifyRelay.lastEndpoint";
 const output = vscode.window.createOutputChannel("Window Flash Notify Relay");
 
 let server: http.Server | undefined;
@@ -61,6 +87,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(output);
   context.subscriptions.push(
+    vscode.commands.registerCommand("windowFlashNotifyRelay.health", async () => {
+      return getRelayHealth(false);
+    })
+  );
+  context.subscriptions.push(
     vscode.commands.registerCommand("windowFlashNotifyRelay.copyCurlCommand", async () => {
       await vscode.env.clipboard.writeText(buildCurlCommand());
       vscode.window.showInformationMessage(vscode.l10n.t("Window Flash Notify relay curl command copied."));
@@ -78,6 +109,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await setupWindowTitleIdentifier();
   await startServer();
+  await promptForFreshTerminalIfNeeded(context);
 
   context.subscriptions.push({
     dispose: () => {
@@ -143,25 +175,7 @@ async function stopServer(): Promise<void> {
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
     if (req.method === "GET" && req.url?.startsWith("/health")) {
-      sendJson(res, 200, {
-        ok: true,
-        role: "relay",
-        version: extensionVersion,
-        relayVersion: extensionVersion,
-        port: activePort,
-        endpoint: activeEndpoint,
-        endpointEnvVar,
-        workspaceName: getWorkspaceName(),
-        workspacePath: getPrimaryWorkspacePath(),
-        workspaceHints: getWorkspaceMatchHints(),
-        windowTitle: getWindowTitleIdentifierInfo(),
-        uiExtension: getExtensionInfo(uiExtensionId),
-        uiHealth: await getUiHealth(),
-        uiCommand: uiNotifyCommand,
-        uiHealthCommand,
-        uiCommandTimeoutMs,
-        uriAckTimeoutMs
-      });
+      sendJson(res, 200, await getRelayHealth(true));
       return;
     }
 
@@ -189,6 +203,33 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     output.appendLine(`Request failed: ${message}`);
     sendJson(res, 400, { error: message });
   }
+}
+
+async function getRelayHealth(includeUiHealth: boolean): Promise<RelayHealthResult> {
+  const result: RelayHealthResult = {
+    ok: true,
+    role: "relay",
+    version: extensionVersion,
+    relayVersion: extensionVersion,
+    port: activePort,
+    endpoint: activeEndpoint,
+    endpointEnvVar,
+    workspaceName: getWorkspaceName(),
+    workspacePath: getPrimaryWorkspacePath(),
+    workspaceHints: getWorkspaceMatchHints(),
+    windowTitle: getWindowTitleIdentifierInfo(),
+    uiExtension: getExtensionInfo(uiExtensionId),
+    uiCommand: uiNotifyCommand,
+    uiHealthCommand,
+    uiCommandTimeoutMs,
+    uriAckTimeoutMs
+  };
+
+  if (includeUiHealth) {
+    result.uiHealth = await getUiHealth();
+  }
+
+  return result;
 }
 
 async function forwardToUi(payload: NotifyPayload): Promise<unknown> {
@@ -650,6 +691,40 @@ function updateTerminalEnvironment(endpoint: string): void {
     applyAtShellIntegration: true
   });
   output.appendLine(`Set terminal environment: ${endpointEnvVar}=${endpoint}`);
+}
+
+async function promptForFreshTerminalIfNeeded(context: vscode.ExtensionContext): Promise<void> {
+  if (!activeEndpoint) {
+    return;
+  }
+
+  const previousEndpoint = context.workspaceState.get<string>(lastEndpointWorkspaceStateKey);
+  await context.workspaceState.update(lastEndpointWorkspaceStateKey, activeEndpoint);
+  if (vscode.window.terminals.length === 0 || previousEndpoint === activeEndpoint) {
+    return;
+  }
+
+  const newTerminalLabel = vscode.l10n.t("New Terminal");
+  const copyExportLabel = vscode.l10n.t("Copy export");
+  const endpoint = activeEndpoint;
+  void vscode.window.showInformationMessage(
+    vscode.l10n.t(
+      "Window Flash Notify Relay is using {endpoint}. Existing terminals may keep an old endpoint; open a new terminal or export the new value.",
+      { endpoint }
+    ),
+    newTerminalLabel,
+    copyExportLabel
+  ).then(async (choice) => {
+    if (choice === newTerminalLabel) {
+      vscode.window.createTerminal().show();
+      return;
+    }
+
+    if (choice === copyExportLabel) {
+      await vscode.env.clipboard.writeText(`export ${endpointEnvVar}=${shellSingleQuote(endpoint)}`);
+      vscode.window.showInformationMessage(vscode.l10n.t("Window Flash Notify endpoint export copied."));
+    }
+  });
 }
 
 function buildCurlCommand(): string {
