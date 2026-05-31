@@ -43,6 +43,7 @@ For a release:
 5. Create a matching tag on the release commit, for example `git tag v0.2.33`.
 6. Push the tag with `git push origin v0.2.33`; this triggers the publish workflow.
 7. Before tagging, confirm that the tag version exactly matches both package versions. The workflow fails if they differ.
+8. After pushing the tag, monitor the GitHub Actions publish run until it reaches success or failure, for example with `gh run list --workflow Publish --limit 5` and `gh run watch <run-id>`. Report the final result to the user, including the failing step or relevant log summary if it fails.
 
 Do not create or push a release tag unless the user explicitly asks to publish or agrees that triggering the marketplace publish workflow is intended.
 
