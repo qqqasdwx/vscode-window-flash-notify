@@ -30,6 +30,22 @@ No test framework is configured yet. For behavioral changes, manually validate i
 
 Recent commits use concise imperative messages, for example `Allow relay activation without UI dependency` and `Document notification request fields`. Follow that style: describe the change, not the process. Pull requests should include a short summary, validation performed (`npm run check`, manual VS Code testing), linked issues when available, and screenshots or terminal output for user-facing behavior changes.
 
+## Release Process
+
+Publishing is tag-driven. The GitHub Actions workflow in `.github/workflows/publish.yml` runs only for pushed tags matching `v*.*.*`; pushing `master` alone does not publish.
+
+For a release:
+
+1. Update both package versions to the same SemVer value in `package.json` and `relay/package.json`.
+2. Update `package-lock.json` and `CHANGELOG.md` for that version.
+3. Run `npm run check` before committing.
+4. Commit the release-ready changes, then push `master`.
+5. Create a matching tag on the release commit, for example `git tag v0.2.33`.
+6. Push the tag with `git push origin v0.2.33`; this triggers the publish workflow.
+7. Before tagging, confirm that the tag version exactly matches both package versions. The workflow fails if they differ.
+
+Do not create or push a release tag unless the user explicitly asks to publish or agrees that triggering the marketplace publish workflow is intended.
+
 ## Security & Configuration Tips
 
 Do not commit marketplace tokens, real auth tokens, generated VSIX files, or `out/` build artifacts. Treat `windowFlashNotifyRelay.authToken` and `VSCE_PAT` as secrets. Keep relay defaults bound to `127.0.0.1` unless a change intentionally expands network exposure and documents the risk.
